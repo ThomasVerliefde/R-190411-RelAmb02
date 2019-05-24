@@ -1,7 +1,272 @@
 ---
-title: "Main"
-author: "Thomas Verliefde"
-date: "2019/05/23"
-output: html_document
+Title: "Main"
+Author: "Thomas Verliefde"
+Date: "2019/05/24"
+Output: html_document
+editor_options:
+  chunk_output_type: console
+Version: '0.5'
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+rm(list=ls())
+
+# load("20190523.RData")
+
+# save.image("20190523.RData")
+```
+
+```{r libraries, include=FALSE}
+
+lapply(
+  c("plyr","dplyr","tidyr","ggplot2","readr","lme4","afex","lmerTest","emmeans",
+    "pbkrtest","purrr","magrittr","cowplot","parallel"),
+  require,
+  character.only=T
+)
+
+```
+
+#########################
+# Importing and Cleanup
+#########################
+
+The required datafile (Data_RelAmb02.zip) should be in the working directory.
+Note that this datafile is not public on GitHub, but will be on the OSF page of this project.
+
+```{r RAW import, options}
+
+temp <- tempdir()
+RAW <- "Data_RelAmb02.zip" %>% {
+  ldply(
+    .data = unzip(.,list=T) %>% # create a list of all the files/folders in the zip
+      filter(grepl("(.csv)$",.$Name)) %>% # ignore any files/folders without .csv extension
+      arrange(Name %>% desc) %$% Name, # Return only the relevant .csv filenames
+    .fun = function(x) {
+      unzip(.,files=x,exdir=temp) %>% # Get for each of the .csv filenames the relevant file, and temporary save it
+        read_csv # Import the .csv file to R
+    }
+  )
+}
+rm(temp)
+
+```
+
+```{r Main Dataframes, options}
+
+RAW %>%
+  as_tibble %>%
+  select(
+    -matches("^(practice|experiment)(Primes|Trials)(Objects|Others)$"),
+    -hostName
+  ) %>%
+  gather(
+    "fullTrials",
+    "outputTrials",
+    matches("^(practice|experiment)_(Objects|Others)(\\d)+_(answer|time|prime|target)(Cat)?")
+  ) %>%
+  gather(
+    "fullTime",
+    "outputTime",
+    matches("^(time)")
+  ) %>%
+  gather(
+    "fullDemographics",
+    "outputDemographics",
+    c(Age,Gender,Language,Handedness,Study,ambiSuggestions,Condition,firstBlock,firstValence)
+  ) %>%
+  gather(
+    "fullDirect",
+    "outputDirect",
+    matches("^(Objects|Others)_(Neg|Pos)(1|2)_(Dir|Num|Rel)_?(Amb|Neg|Pos)?"),
+    matches("^(collect)(Objects|Others)(Neg|Pos)(1|2)$")
+  ) %>% # CHECK THE NEXT CODING BLOCK!
+  mutate(
+    Subject = Subject %>% as.numeric %>% factor(levels = unique(.) %>% sort)
+  ) %$%
+  l_ply(
+    names(.) %>%
+      gsub("^(full|output)(.+)$","\\2",.) %>%
+      magrittr::extract(duplicated(.)),
+    function (x) {
+      assign(
+        paste0("df",x),
+        select(
+          .,
+          Subject,
+          Key,
+          contains(x)
+        ) %>%
+          distinct,
+        envir = .GlobalEnv
+      )
+    }
+  )
+
+```
+
+```{r Trials - Wrangling, options}
+
+dfTrials %<>%
+  tidyr::extract(
+    fullTrials,
+    c("Segment","Block","Trial","components"),
+    "^(practice|experiment)_(Objects|Others)(\\d+)_(\\D+)$"
+  ) %>%
+  group_by(Subject,Trial,Segment,Block) %>%
+  spread(
+    components,
+    outputTrials
+  ) %>%
+  ungroup %>%
+  rename(
+    Response = answer,
+    primeWord = prime,
+    primeCondition = primeCat,
+    targetWord = target,
+    targetCondition = targetCat,
+    RT = time
+  ) %>%
+  mutate(
+    Trial = Trial %>% as.numeric %>% factor(levels = unique(.) %>% sort),
+    primeCondition = primeCondition %>%
+      recode(
+        "0" = "nounPos",
+        "1" = "nounNeg",
+        "2" = paste0(tolower(Block),"Pos"),
+        "3" = paste0(tolower(Block),"Neg"),
+        "4" = "letterStr",
+      ), # The following two variables could be created with an tidyr::extract(primeCondition,c("primeValence","primeSource"),"^(.+)([A-Z]{1}.+)$")
+    primeValence = primeCondition %>%
+      gsub("^(.+)([A-Z]{1}.+)$","\\2",.),
+    primeSource = primeCondition %>%
+      gsub("^(.+)([A-Z]{1}.+)$","\\1",.),
+    targetCondition = targetCondition %>%
+      recode_factor(
+        "0" = "Pos",
+        "1" = "Neg"
+      ),
+    Congruency = case_when(
+      primeValence == targetCondition ~ "Congruent",
+      primeValence == "Str" ~ "Base",
+      TRUE ~ "Incongruent"
+    ),
+    RT = RT %>% as.numeric,
+    logRT = RT %>% as.numeric %>% log,
+    Correct = case_when(
+      Response == "A" & targetCondition == "Pos" & Key == "Apos" ~ TRUE,
+      Response == "A" & targetCondition == "Neg" & Key == "Aneg" ~ TRUE,
+      Response == "L" & targetCondition == "Neg" & Key == "Apos" ~ TRUE,
+      Response == "L" & targetCondition == "Pos" & Key == "Aneg" ~ TRUE,
+      TRUE ~ FALSE
+    )
+  ) %>%
+  group_by(Subject,Segment) %>%
+  mutate(
+    Accuracy = mean(Correct),
+    latencyInclusion = (RT >= 300 & RT <= 3000),
+    trialInclusion = latencyInclusion & Correct,
+    accInclusion = (1 - mean(trialInclusion)) < 0.83,
+    nameExclusion = FALSE,
+    subjExclusion = not(accInclusion) | nameExclusion,
+    Inclusion = trialInclusion & not(subjExclusion)
+  ) %>%
+  arrange(Subject,Block,desc(Segment),Trial)
+
+```
+
+```{r Direct - Wrangling, options}
+
+dfDirect %<>%
+  mutate(
+    fullDirect = sub("(_)|(collect)","",fullDirect)
+  ) %>%
+  separate(
+    fullDirect,
+    c("Item","Key"),
+    "_",
+    extra = "merge"
+  ) %>%
+  replace_na(list(Key = "Name")) %>%
+  group_by(Subject,Item) %>%
+  spread(Key,outputDirect) %>%
+  ungroup %>%
+  tidyr::extract(
+    Item,
+    c("Type","Valence","Id"),
+    "^(Objects|Others)(Pos|Neg)(1|2)$"
+  ) %>%
+  mutate(
+    Num = case_when(
+      Type == "Objects" ~ NA_character_,
+      TRUE ~ Num),
+    Dir_Pos = Dir_Pos %>% as.numeric,
+    Dir_Neg = Dir_Neg %>% as.numeric,
+    Dir_Amb = Dir_Amb %>% as.numeric,
+    Griffin = (Dir_Pos + Dir_Neg) / 2 + abs(Dir_Pos - Dir_Neg)
+  ) %>%
+  rename(
+    "Felt" = Dir_Amb,
+    "Negative" = Dir_Neg,
+    "Positive" = Dir_Pos,
+    "Number" = Num,
+    "Relation" = Rel
+  )
+  
+  
+```
+
+```{r Demographics - Wrangling, options}
+
+dfDemographics %<>%
+  spread(fullDemographics,outputDemographics) %>%
+  select(
+    Subject,Age,Gender,Handedness,Language,Study,ambiSuggestions,Condition,Key,firstValence,firstBlock
+  )
+
+```
+
+
+```{r Time - Wrangling, options}
+
+dfTime %<>%
+  mutate(
+    fullTime = gsub("time","",fullTime),
+    Order = fullTime %>%
+      recode(
+        "Collect01" = 1,
+        "Practice01" = 2 ,
+        "Experiment01" = 3,
+        "Collect02" = 4,
+        "Practice02" = 5,
+        "Experiment02" = 6,
+        "Explicit" = 7,
+        "Demographics" = 8,
+        "Ambi" = 9,
+        "Total" = 10
+      )
+  ) %>%
+  select(Subject,Order,"Part"=fullTime,"Time"=outputTime) %>%
+  arrange(Subject,Order)
+
+```
+
+
+```{r Dataframe Output, options}
+
+dfTrials %>%
+  write.csv("trialsData190524.csv")
+
+dfTime %>%
+  write.csv("timeData190524.csv")
+
+dfDirect %>%
+  write.csv("directData190524.csv")
+
+dfDemographics %>%
+  write.csv("demographicsData190524.csv")
+
+
+```
