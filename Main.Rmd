@@ -1,17 +1,17 @@
 ---
 Title: "Main"
 Author: "Thomas Verliefde"
-Date: "2019/05/24"
+Date: "2019/06/03"
 Output: html_document
 editor_options:
   chunk_output_type: console
-Version: '0.5'
+Version: '0.6'
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-rm(list=ls())
+# rm(list=ls())
 
 # load("20190523.RData")
 
@@ -29,9 +29,13 @@ lapply(
 
 ```
 
-#########################
-# Importing and Cleanup
-#########################
+#######################
+# Importing & Cleanup
+#######################
+
+###########
+## Import
+###########
 
 The required datafile (Data_RelAmb02.zip) should be in the working directory.
 Note that this datafile is not public on GitHub, but will be on the OSF page of this project.
@@ -39,14 +43,14 @@ Note that this datafile is not public on GitHub, but will be on the OSF page of 
 ```{r RAW import, options}
 
 temp <- tempdir()
-RAW <- "Data_RelAmb02.zip" %>% {
+RAW <- "partialData_RelAmb02.zip" %>% {
   ldply(
     .data = unzip(.,list=T) %>% # create a list of all the files/folders in the zip
-      filter(grepl("(.csv)$",.$Name)) %>% # ignore any files/folders without .csv extension
+      filter(grepl(".+(csv)$",.$Name)) %>% # ignore any files/folders without .csv extension
       arrange(Name %>% desc) %$% Name, # Return only the relevant .csv filenames
     .fun = function(x) {
       unzip(.,files=x,exdir=temp) %>% # Get for each of the .csv filenames the relevant file, and temporary save it
-        read_csv # Import the .csv file to R
+        read_csv(n_max = 1) # Import the .csv file to R
     }
   )
 }
@@ -54,62 +58,73 @@ rm(temp)
 
 ```
 
-```{r Main Dataframes, options}
+```{r RAW Problems, exclude=TRUE}
 
-RAW %>%
+# temp <- tempdir()
+# problemsRAW <- "partialData_RelAmb02.zip" %>% {
+#   ldply(
+#     .data = unzip(.,list=T) %>% # unzip the 
+#       filter(grepl("^(oldVersion)/.+(csv)$",.$Name)) %>% # Ignore any file/folder that is not a .csv file
+#       arrange(Name %>% desc) %$% Name, # Returns a 'list' containing the relevant .csv filenames
+#     .fun = function(x) unzip(.,files=x,exdir=temp) %>% read_csv
+#   )
+# }
+# rm(temp)
+#
+# problemsRAW %>%
+#   filter(is.na(Objects_Neg1_Dir_Amb)) %>%
+#   select(Subject,Condition,Key,firstBlock,firstValence)
+# 
+# problemsRAW %>% utils::View(.)
+
+```
+
+
+Subjects 1, 82, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97 have data from during a period in which the software caused problems.
+Subjects 83, 84, 85 have no data since the software issue was unresolved at the time.
+Subjects 87, 90, 92, 94, 95, 96, & 97 are problematic, as they do not have any direct measures recorded.
+The data for latencies is complete though, and can be used for latency analyses.
+Further, Subject 87 does not have fully-correct demographics.
+That is why their age is indicated as 99 and their study is unknown. Their gender and Language is correct though.
+
+Unrelated:
+Subject 145 has no values for some end-of-experiment variables, including one set of direct measures and full demographics.
+Subject 107 apparently performed the experiment twice. Only the results from the first experiment will be used.
+This is ensured during the import of the data by specifying "n_max = 1".
+
+```{r RAW - Wrangling, options}
+
+RAW %<>%
+  mutate_at(
+    vars(Age,Handedness,Study,ambiSuggestions),
+    funs(
+      case_when(
+        Subject == 87 ~ NA_character_,
+        TRUE ~ .
+      )
+    )
+  ) %>%
   as_tibble %>%
   select(
     -matches("^(practice|experiment)(Primes|Trials)(Objects|Others)$"),
     -hostName
   ) %>%
+  mutate(
+    Subject = Subject %>% as.numeric %>% factor(levels = unique(.) %>% sort)
+  )
+
+```
+
+
+```{r Trials - Wrangling, options}
+
+dfTrials <- RAW %>%
   gather(
     "fullTrials",
     "outputTrials",
     matches("^(practice|experiment)_(Objects|Others)(\\d)+_(answer|time|prime|target)(Cat)?")
   ) %>%
-  gather(
-    "fullTime",
-    "outputTime",
-    matches("^(time)")
-  ) %>%
-  gather(
-    "fullDemographics",
-    "outputDemographics",
-    c(Age,Gender,Language,Handedness,Study,ambiSuggestions,Condition,firstBlock,firstValence)
-  ) %>%
-  gather(
-    "fullDirect",
-    "outputDirect",
-    matches("^(Objects|Others)_(Neg|Pos)(1|2)_(Dir|Num|Rel)_?(Amb|Neg|Pos)?"),
-    matches("^(collect)(Objects|Others)(Neg|Pos)(1|2)$")
-  ) %>% # CHECK THE NEXT CODING BLOCK!
-  mutate(
-    Subject = Subject %>% as.numeric %>% factor(levels = unique(.) %>% sort)
-  ) %$%
-  l_ply(
-    names(.) %>%
-      gsub("^(full|output)(.+)$","\\2",.) %>%
-      magrittr::extract(duplicated(.)),
-    function (x) {
-      assign(
-        paste0("df",x),
-        select(
-          .,
-          Subject,
-          Key,
-          contains(x)
-        ) %>%
-          distinct,
-        envir = .GlobalEnv
-      )
-    }
-  )
-
-```
-
-```{r Trials - Wrangling, options}
-
-dfTrials %<>%
+  select(Subject,Condition,Key,firstBlock,firstValence,fullTrials,outputTrials) %>%
   tidyr::extract(
     fullTrials,
     c("Segment","Block","Trial","components"),
@@ -179,15 +194,24 @@ dfTrials %<>%
 
 ```{r Direct - Wrangling, options}
 
-dfDirect %<>%
+dfDirect <- RAW %>%
+  gather(
+    "fullDirect",
+    "outputDirect",
+    matches("^(Objects|Others)_(Neg|Pos)(1|2)_(Dir|Num|Rel)_?(Amb|Neg|Pos)?"),
+    matches("^(collect)(Objects|Others)(Neg|Pos)(1|2)$")
+  ) %>% 
+  select(Subject,Condition,Key,firstBlock,firstValence,fullDirect,outputDirect) %>%
   mutate(
+    Subject = Subject %>% as.numeric %>% factor(levels = unique(.) %>% sort),
     fullDirect = sub("(_)|(collect)","",fullDirect)
   ) %>%
   separate(
     fullDirect,
     c("Item","Key"),
     "_",
-    extra = "merge"
+    extra = "merge",
+    fill = "right"
   ) %>%
   replace_na(list(Key = "Name")) %>%
   group_by(Subject,Item) %>%
@@ -215,23 +239,17 @@ dfDirect %<>%
     "Relation" = Rel
   )
   
-  
 ```
-
-```{r Demographics - Wrangling, options}
-
-dfDemographics %<>%
-  spread(fullDemographics,outputDemographics) %>%
-  select(
-    Subject,Age,Gender,Handedness,Language,Study,ambiSuggestions,Condition,Key,firstValence,firstBlock
-  )
-
-```
-
 
 ```{r Time - Wrangling, options}
 
-dfTime %<>%
+dfTime <- RAW %>%
+  gather(
+    "fullTime",
+    "outputTime",
+    matches("^(time)")
+  ) %>%
+  select(Subject,Condition,Key,firstBlock,firstValence,fullTime,outputTime) %>%
   mutate(
     fullTime = gsub("time","",fullTime),
     Order = fullTime %>%
@@ -253,20 +271,26 @@ dfTime %<>%
 
 ```
 
+```{r Demo - Wrangling, options}
 
-```{r Dataframe Output, options}
+dfDemo <- RAW %>%
+  select(Subject,Condition,Key,firstBlock,firstValence,Age,Gender,Language,Handedness,Study,ambiSuggestions)
+
+```
+
+```{r Dataframe Output, exclude=TRUE}
 
 dfTrials %>%
-  write.csv("trialsData190524.csv")
+  write.csv("trialsData190603.csv")
 
 dfTime %>%
-  write.csv("timeData190524.csv")
+  write.csv("timeData190603.csv")
 
 dfDirect %>%
-  write.csv("directData190524.csv")
+  write.csv("directData190603.csv")
 
-dfDemographics %>%
-  write.csv("demographicsData190524.csv")
+dfDemo %>%
+  write.csv("demoData190603.csv")
 
 
 ```
