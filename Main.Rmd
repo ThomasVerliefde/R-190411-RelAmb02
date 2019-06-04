@@ -167,7 +167,7 @@ dfTrials <- RAW %>%
     primeSource = primeCondition %>%
       gsub("^(.+)([A-Z]{1}.+)$","\\1",.),
     targetCondition = targetCondition %>%
-      recode_factor(
+      recode(
         "0" = "Pos",
         "1" = "Neg"
       ),
@@ -196,7 +196,13 @@ dfTrials <- RAW %>%
     subjExclusion = not(accInclusion) | nameExclusion,
     Inclusion = trialInclusion & not(subjExclusion)
   ) %>%
-  arrange(Subject,Block,desc(Segment),Trial)
+  filter(Segment == "experiment") %>%
+  ungroup %>%
+  mutate_at(
+    vars(primeCondition,targetCondition,primeValence,primeSource,Congruency),
+    funs(factor(.,levels=unique(.) %>% sort(decreasing=TRUE)))
+  ) %>%
+  arrange(Subject,Block,Trial)
 
 ```
 
@@ -312,14 +318,14 @@ dfDemo <- RAW %>%
 
 
 #####################
-## Multilevel Model
+## Full Multilevel
 #####################
 
 Possibility:
 set contrasts of the primeCondition to treatment (with the letter strings as base), but
 with contrasts for targetCondition to [-1, 1] for Neg and Pos respectively.
 
-```{r Random Intercepts subject & target, options}
+```{r Full w Random Intercepts subject & target, options}
 
 afex::set_effects_contrasts()
 fitBoth1 <- dfTrials %>%
@@ -376,39 +382,48 @@ emmeansOth <- fitOth %>% emmeans(~primeCondition * targetCondition)
 
 ```
 
+I should recover home changes on this; although changes to make primeCondition a factor should counteract this..
+
 ```{r Contrasts, options}
 
-contrFull1 <- emmeansFull1 %>%
-  contrast(method="revpairwise") %>%
-  as_tibble %>%
-  separate(contrast,c("contrastA","contrastB"),sep=" - ") %>%
-  separate(contrastA,c("primeA","targetA","blockA"),sep=",") %>%
-  separate(contrastB,c("primeB","targetB","blockB"),sep=",") %>%
-  arrange(blockA,blockB,primeA %>% desc,primeB %>% desc,targetA)
-
-contrFull2 <- emmeansFull2 %>%
-  contrast(method="revpairwise") %>%
-  as_tibble %>%
-  separate(contrast,c("contrastA","contrastB"),sep=" - ") %>%
-  separate(contrastA,c("primeA","targetA"),sep=",") %>%
-  separate(contrastB,c("primeB","targetB"),sep=",") %>%
-  arrange(primeA,primeB,targetA)
-
-contrObj <- emmeansObj %>%
-  contrast(method="pairwise") %>%
-  as_tibble %>%
-  separate(contrast,c("contrastA","contrastB"),sep=" - ") %>%
-  separate(contrastA,c("primeA","targetA"),sep=",") %>%
-  separate(contrastB,c("primeB","targetB"),sep=",") %>%
-  arrange(primeA,primeB,targetA)
-
-contrOth <- emmeansOth %>%
-  contrast(method="pairwise") %>%
-  as_tibble %>%
-  separate(contrast,c("contrastA","contrastB"),sep=" - ") %>%
-  separate(contrastA,c("primeA","targetA"),sep=",") %>%
-  separate(contrastB,c("primeB","targetB"),sep=",") %>%
-  arrange(primeA,primeB,targetA)
+# contrFull1 <- emmeansFull1 %>%
+#   contrast(method="revpairwise") %>%
+#   as_tibble %>%
+#   separate(contrast,c("contrastA","contrastB"),sep=" - ") %>%
+#   separate(contrastA,c("primeA","targetA","blockA"),sep=",") %>%
+#   separate(contrastB,c("primeB","targetB","blockB"),sep=",") %>%
+#   mutate_at(
+#     vars(primeA,primeB),
+#     funs()
+#   ) %>%
+#   mutate_at(
+#     
+#   )
+#   arrange(blockA,blockB,primeA %>% desc,primeB %>% desc,targetA)
+# 
+# contrFull2 <- emmeansFull2 %>%
+#   contrast(method="revpairwise") %>%
+#   as_tibble %>%
+#   separate(contrast,c("contrastA","contrastB"),sep=" - ") %>%
+#   separate(contrastA,c("primeA","targetA"),sep=",") %>%
+#   separate(contrastB,c("primeB","targetB"),sep=",") %>%
+#   arrange(primeA,primeB,targetA)
+# 
+# contrObj <- emmeansObj %>%
+#   contrast(method="pairwise") %>%
+#   as_tibble %>%
+#   separate(contrast,c("contrastA","contrastB"),sep=" - ") %>%
+#   separate(contrastA,c("primeA","targetA"),sep=",") %>%
+#   separate(contrastB,c("primeB","targetB"),sep=",") %>%
+#   arrange(primeA,primeB,targetA)
+# 
+# contrOth <- emmeansOth %>%
+#   contrast(method="pairwise") %>%
+#   as_tibble %>%
+#   separate(contrast,c("contrastA","contrastB"),sep=" - ") %>%
+#   separate(contrastA,c("primeA","targetA"),sep=",") %>%
+#   separate(contrastB,c("primeB","targetB"),sep=",") %>%
+#   arrange(primeA,primeB,targetA)
 
 ```
 
@@ -442,7 +457,12 @@ plot_grid(
       aes(
         x = primeA,
         y = 10,
-        label = p.value %>% signif(3)
+        label = case_when(
+          p.value < .001 ~ '***',
+          p.value < .01 ~ '**',
+          p.value < .05 ~ '*',
+          TRUE ~ p.value %>% signif(3) %>% as.character
+        )
       ),
       inherit.aes = FALSE
     ) +
@@ -470,7 +490,12 @@ plot_grid(
       aes(
         x = primeA,
         y = 10,
-        label = p.value %>% signif(3)
+        label = case_when(
+          p.value < .001 ~ '***',
+          p.value < .01 ~ '**',
+          p.value < .05 ~ '*',
+          TRUE ~ p.value %>% signif(3) %>% as.character
+        )
       ),
       inherit.aes = FALSE
     ) +
@@ -481,43 +506,45 @@ plot_grid(
 
 ```
 
+
+
 ```{r Graphs, options}
 
-contrFull1 %>%
-  filter(
-    grepl("others.",primeA) & grepl("objects.",primeB) & targetA == targetB
-  ) %>% 
-  filter(
-    not(blockA == "Objects" & grepl("others.",primeA)) &
-      not(blockA == "Others" & grepl("objects.",primeA)) &
-    not(blockB == "Objects" & grepl("others.",primeB)) &
-      not(blockB == "Others" & grepl("objects.",primeB))
-    ) %>%
-  group_by(primeA,primeB) %>%
-  do(
-    plots = ggplot(data=.,aes(x=primeA,y=estimate,fill=targetA)) +
-      geom_col(position=position_dodge2()) +
-      ggtitle(paste(.$primeA,"-",.$primeB)) +
-      labs(x="",y="") +
-      scale_x_discrete(labels = NULL, breaks = NULL) +
-      scale_y_continuous(limits=c(-.08,.08)) +
-      geom_label(
-         aes(
-           y=0,
-          label=case_when(
-            p.value < .001 ~ '***',
-            p.value < .01 ~ '**',
-            p.value < .05 ~ '*',
-            TRUE ~ signif(p.value,3) %>% as.character
-          )
-      ),
-      position = position_dodge2(width=.9)
-      ) +
-      theme_bw()
-  ) %$%
-  plot_grid(
-    plotlist=plots,align="hv"
-  )
+# contrFull1 %>%
+#   filter(
+#     grepl("others.",primeA) & grepl("objects.",primeB) & targetA == targetB
+#   ) %>% 
+#   filter(
+#     not(blockA == "Objects" & grepl("others.",primeA)) &
+#       not(blockA == "Others" & grepl("objects.",primeA)) &
+#     not(blockB == "Objects" & grepl("others.",primeB)) &
+#       not(blockB == "Others" & grepl("objects.",primeB))
+#     ) %>%
+#   group_by(primeA,primeB) %>%
+#   do(
+#     plots = ggplot(data=.,aes(x=primeA,y=estimate,fill=targetA)) +
+#       geom_col(position=position_dodge2()) +
+#       ggtitle(paste(.$primeA,"-",.$primeB)) +
+#       labs(x="",y="") +
+#       scale_x_discrete(labels = NULL, breaks = NULL) +
+#       scale_y_continuous(limits=c(-.08,.08)) +
+#       geom_label(
+#          aes(
+#            y=0,
+#           label=case_when(
+#             p.value < .001 ~ '***',
+#             p.value < .01 ~ '**',
+#             p.value < .05 ~ '*',
+#             TRUE ~ signif(p.value,3) %>% as.character
+#           )
+#       ),
+#       position = position_dodge2(width=.9)
+#       ) +
+#       theme_bw()
+#   ) %$%
+#   plot_grid(
+#     plotlist=plots,align="hv"
+#   )
 
 ```
 
@@ -564,3 +591,226 @@ contrFull1 %>%
 
 
 ```
+
+########################
+## Partial Multilevels
+########################
+
+For all of these:
+
+primeCondition and targetCondition are both effect coded,
+with positive primes and targets as 1, and negative primes and targets as -1
+
+```{r Nouns, options}
+
+partNouns <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(primeCondition %>% grepl("noun",.)) %>%
+   mixed(
+      logRT ~ primeCondition * targetCondition + (1|targetWord) + (1|Subject),
+      data = .,
+      method = "S",
+      contrasts = list(
+        primeCondition = contr.sum(2),
+        targetCondition = contr.sum(2)
+      )
+    )
+
+summary(partNouns)
+
+```
+
+```{r Objects, options}
+
+partObjects <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(primeCondition %>% grepl("objects",.)) %>%
+   mixed(
+      logRT ~ primeCondition * targetCondition + (1|targetWord) + (1|Subject),
+      data = .,
+      method = "S",
+      contrasts = list(
+        primeCondition = contr.sum(2),
+        targetCondition = contr.sum(2)
+      )
+    )
+
+summary(partObjects)
+
+```
+
+Example:
+
+Intercept == mean(overall)
+
+primeCondition1 == effect of Positive prime
+                == - effect of Negative prime
+mean(primePos) -> 6.491 + (-.009167) = 6.482 
+mean(primeNeg) -> 6.491 - (-.009167) = 6.500
+
+targetCondition1 == effect of Positive target
+                 == - effect of Negative target
+mean(targetPos) -> 6.491 + (-.02035) = 6.471
+mean(targetNeg) -> 6.491 - (-.02035) = 6.511
+
+primeCondition1:targetCondition1 == interaction of Positive prime and Positive targets
+                                 ==
+
+primePos:targetPos -> 6.491 + (-.009167) + (-.02035) + (-.01445) = 6.447
+primeNeg:targetPos -> 6.491 - (-.009167) + (-.02035) - (-.01445) = 6.494
+primePos:targetNeg -> 6.491 + (-.009167) - (-.02035) - (-.01445) = 6.517
+primeNeg:targetNeg -> 6.491 - (-.009167) - (-.02035) + (-.01445) = 6.506
+
+```{r EMM partObjects, options}
+
+partObjEMM <- partObjects %>% emmeans(~primeCondition * targetCondition) %>% as_tibble
+
+partObjEMM %>% group_by(primeCondition) %>% summarize(mean(emmean))
+partObjEMM %>% group_by(targetCondition) %>% summarize(mean(emmean))
+partObjEMM %>% select(primeCondition,targetCondition,emmean)
+
+```
+
+
+```{r Others, options}
+
+afex::set_effects_contrasts()
+partOthers <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(primeCondition %>% grepl("others",.)) %>%
+   mixed(
+      logRT ~ primeCondition * targetCondition + (1|targetWord) + (1|Subject),
+      data = .,
+      method = "S",
+      contrasts = list(
+        primeCondition = contr.sum(2),
+        targetCondition = contr.sum(2)
+      )
+    )
+
+summary(partOthers)
+
+```
+
+#########################
+### Subtracting Letters
+#########################
+
+```{r Wrangling, options}
+
+test <- dfTrials %>%
+  filter(Inclusion) %>%
+  
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+#####################
+### Letters as Base
+#####################
+
+For all of these:
+
+primeCondition is dummy coded, with letters as base
+targetCondition is effect coded, with Positive == 1 and Negative == -1
+
+```{r Nouns, options}
+
+treatNouns <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(primeCondition %>% grepl("(noun)|(letter)",.)) %>%
+   mixed(
+      logRT ~ primeCondition * targetCondition + (1|targetWord) + (1|Subject),
+      data = .,
+      method = "S",
+      check_contrasts = FALSE,
+      contrasts = list(
+        primeCondition = contr.SAS(3),
+        targetCondition = contr.sum(2)
+        )
+    )
+
+summary(treatNouns)
+
+```
+
+Example:
+
+Intercept == mean(letterStr)
+primeCondition1 == mean(xxxPos) - mean(letterStr)
+primeCondition2 == mean(xxxNeg) - mean(letterStr)
+
+targetCondition1 == effect of Positive target
+                 == - effect of Negative target
+                 == (mean(targetPos) - mean(targetNeg)) * 0.5
+                 
+primeCondition1:targetCondition1 == interaction of Positive target for Positive primes
+                                 == - interaction of Negative target for Positive primes
+
+6.457+.01423 -0.01984 -0.02532 == 6.43 (nounPos:Pos)
+6.457+.01423 +0.01984 +0.02532 == 6.52 (nounPos:Neg)
+
+primeCondition2:targetCondition1 == interaction of Positive target for Negative primes
+                                 == - interaction of Negative target for Negative primes
+
+6.457+0.02311 +0.01984 -0.02128 = 6.48 (nounNeg:Neg)
+6.457+0.02311 -0.01984 +0.02128 = 6.48 (nounNeg:Pos)
+
+```{r EMM Nouns, options}
+
+treatNouns %>% emmeans(~primeCondition * targetCondition)
+
+```
+
+
+```{r Objects, options}
+
+treatObjects <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(primeCondition %>% grepl("(objects)|(letter)",.)) %>%
+   mixed(
+      logRT ~ primeCondition * targetCondition + (1|targetWord) + (1|Subject),
+      data = .,
+      method = "S",
+      check_contrasts = FALSE,
+      contrasts = list(
+        primeCondition = contr.SAS(3),
+        targetCondition = contr.sum(2)
+        )
+    )
+
+summary(treatObjects)
+
+```
+
+```{r Others, options}
+
+treatOthers <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(primeCondition %>% grepl("(others)|(letter)",.)) %>%
+   mixed(
+      logRT ~ primeCondition * targetCondition + (1|targetWord) + (1|Subject),
+      data = .,
+      method = "S",
+      check_contrasts = FALSE,
+      contrasts = list(
+        primeCondition = contr.SAS(3),
+        targetCondition = contr.sum(2)
+        )
+    )
+
+summary(treatOthers)
+
+```
+
