@@ -43,7 +43,7 @@ Note that this datafile is not public on GitHub, but will be on the OSF page of 
 ```{r RAW import, options}
 
 temp <- tempdir()
-RAW <- "Data_RelAmb02.zip" %>% {
+RAW <- "dataRelAmb02.zip" %>% {
   ldply(
     .data = unzip(.,list=T) %>% # create a list of all the files/folders in the zip
       filter(grepl(".+(csv)$",.$Name)) %>% # ignore any files/folders without .csv extension
@@ -243,7 +243,7 @@ dfDirect <- RAW %>%
     Dir_Pos = Dir_Pos %>% as.numeric,
     Dir_Neg = Dir_Neg %>% as.numeric,
     Dir_Amb = Dir_Amb %>% as.numeric,
-    Griffin = (Dir_Pos + Dir_Neg) / 2 + abs(Dir_Pos - Dir_Neg)
+    Griffin = (Dir_Pos + Dir_Neg) / 2 - abs(Dir_Pos - Dir_Neg)
   ) %>%
   rename(
     "Felt" = Dir_Amb,
@@ -311,16 +311,16 @@ dfDemo <- RAW %>%
 ```{r Dataframe Output, exclude=TRUE}
 
 # dfTrials %>%
-#   write.csv("trialsData190609.csv")
+#   write.csv("trialsData190611.csv")
 # 
 # dfTime %>%
-#   write.csv("timeData190609.csv")
+#   write.csv("timeData190611.csv")
 # 
 # dfDirect %>%
-#   write.csv("directData190609.csv")
+#   write.csv("directData190611.csv")
 # 
 # dfDemo %>%
-#   write.csv("demoData190609.csv")
+#   write.csv("demoData190611.csv")
 
 ```
 
