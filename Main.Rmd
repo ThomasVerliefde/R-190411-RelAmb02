@@ -22,7 +22,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 lapply(
   c("plyr","dplyr","tidyr","ggplot2","readr","lme4","afex","lmerTest","emmeans",
-    "pbkrtest","purrr","magrittr","cowplot","parallel"),
+    "pbkrtest","purrr","magrittr","cowplot","parallel","svglite"),
   require,
   character.only=T
 )
@@ -69,13 +69,17 @@ The data for latencies is complete though, and can be used for latency analyses.
 Further, Subject 87 does not have fully-correct demographics.
 That is why their age is indicated as 99 and their study is unknown. Their gender and language are correct though.
 
+Subject 87: all direct measures and partial demographics
+Subjects 90 92 94 95 96 97: all direct measures
 Subject 161: ambiSuggestions
 Subject 152: Objects_Pos1,Objects_Pos2,Others,Demo,Time
 Subject 149: ambiSuggestions
 Subject 145: Others_Pos2,Demo,Time
 Subject 102: ambiSuggestions
 
-Subjects 152 and 145 are missing all demographics.
+Subjects 152 and 145 are missing all demographics, and many direct measures.
+Subject 87 is missing partial demographics.
+
 The ambiSuggestions variable missing is no issue for this exp.
 
 Subject 107 apparently performed the experiment twice. Only the results from the first experiment will be used.
@@ -83,24 +87,16 @@ This is ensured during the import of the data by specifying "n_max = 1".
 
 ```{r NA in RAW, exclude=TRUE}
 
-# naRAW <- RAW %>%
-#   select(
-#     grep("^(Objects).+(Num)$",names(.),invert=TRUE)
-#   ) %>%
-#   filter_all(any_vars(is.na(.))) %>%
-#   group_by(Subject,Condition,Key,firstBlock,firstValence) %>%
-#   select_if(function(x) any(is.na(x))) %>%
-#   ungroup
-#     
-# naRAW %>%
-#   select(Subject,Condition,Key,firstBlock,firstValence)
-# 
-# naRAW %>% utils::View(.)
+RAW %>%
+  select(
+    grep("^(Objects).+(Num)$",names(.),invert=TRUE)
+  ) %>%
+  filter_all(any_vars(is.na(.))) %>%
+  group_by(Subject,Condition,Key,firstBlock,firstValence) %>%
+  select_if(function(x) any(is.na(x))) %>%
+  ungroup %>% View(.)
 
 ```
-
-
-
 
 ```{r RAW - Wrangling, options}
 
@@ -126,13 +122,38 @@ RAW %<>%
 
 ```
 
+#############################
+## Provided Others & Objects 
+#############################
+
+```{r Others & Objects, options}
+
+RAW %>%
+  select(Subject,starts_with("collect"),ends_with("Rel")) %>%
+  gather(collect,Name,starts_with("collect")) %>%
+  gather(relation,Comment,ends_with("Rel")) %>%
+  mutate(
+    collect = collect %>%
+      gsub("(collect)(Objects|Others)","\\2_",.),
+    relation = relation %>%
+      gsub("(_Rel)$","",.)
+  ) %>%
+  filter(collect == relation) %>%
+  select(-relation) %>%
+  separate(collect,c("Source","Valence")) %>%
+  arrange(Subject,Source,Valence) %>% View(.)
+
+```
+
+
+
 ###############
 ## Wrangling
 ###############
 
 ```{r Trials - Wrangling, options}
 
-dfTrials <- RAW %>%
+testdfTrials <- RAW %>%
   gather(
     "fullTrials",
     "outputTrials",
@@ -198,7 +219,9 @@ dfTrials <- RAW %>%
     latencyInclusion = (RT >= 300 & RT <= 3000),
     trialInclusion = latencyInclusion & Correct,
     accInclusion = (1 - mean(trialInclusion)) < 0.83,
-    nameExclusion = Subject %in% c(145,152),
+    nameExclusion = Subject %in% c(86,105,117,118,125,129,133,135,141,142,145,156),
+    # Subject exclusions 86,105,117,118,125,129,133,135,141,142,145,156 are due to not providing decent object or other names.
+    # Note that there is quite a gray zone of acceptance, which is discussable.
     subjExclusion = not(accInclusion) | nameExclusion,
     Inclusion = trialInclusion & not(subjExclusion) & Segment == "experiment"
   ) %>%
@@ -355,11 +378,18 @@ dfDemo %$%
   not %>%
   magrittr::extract(c(81:160),.)
 
+dfDemo %$%
+  '%in%'(Subject,c(81:160)) %>%
+  not %>%
+  magrittr::extract(dfDemo$Subject,.) %>%
+  as.character
+
 ```
 
 ```{r Demos, options}
 
 dfDemo %>%
+  filter(subjExclusion %>% not) %>%
   summarize_at(
     "Age",
     funs(mean,sd,min,max,median),
@@ -368,14 +398,665 @@ dfDemo %>%
 
 ```
 
+```{r Acc, options}
+
+dfTrials %>%
+  filter(Inclusion) %>%
+  distinct(Subject,Accuracy) %>%
+  arrange(Accuracy)
+
+```
+
+5 included participants with accuracy scores below .80
+
 ############
 # Analyses
 ############
 
-
 #####################
 ## Multilevel Model
 #####################
+
+################
+### Congruency
+################
+
+```{r Simple Congruency Models, options}
+
+afex::set_effects_contrasts()
+
+congruencyOthers <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(primeSource == "others") %>%
+  mixed(
+    logRT ~ primeCondition * targetCondition + (1|Subject) + (1|targetWord),
+    data = .,
+    method = "S",
+    check_contrasts = TRUE,
+    contrasts = list(primeCondition = contr.sum(2), targetCondition = contr.sum(2))
+  )
+congruencyOthers
+
+congruencyObjects <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(primeSource == "objects") %>%
+  mixed(
+    logRT ~ primeCondition * targetCondition + (1|Subject) + (1|targetWord),
+    data = .,
+    method = "S",
+    check_contrasts = TRUE,
+    contrasts = list(primeCondition = contr.sum(2), targetCondition = contr.sum(2))
+  )
+congruencyObjects
+
+congruencyNouns <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(primeSource == "noun") %>%
+  mixed(
+    logRT ~ primeCondition * targetCondition * Block + (1|Subject) + (1|targetWord),
+    data = .,
+    method = "S",
+    check_contrasts = TRUE,
+    contrasts = list(primeCondition = contr.sum(2), targetCondition = contr.sum(2))
+  )
+congruencyNouns
+
+```
+
+########################
+#### Control Variables
+########################
+
+```{r Control Variables, options}
+
+congruencyOthersControl <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(primeSource == "others") %>%
+  mixed(
+    logRT ~ (primeCondition * targetCondition) * (Key + firstBlock + firstValence) + (1|Subject) + (1|targetWord),
+    data = .,
+    method = "S",
+    check_contrasts = TRUE,
+    contrasts = list(primeCondition = contr.sum(2), targetCondition = contr.sum(2))
+  )
+congruencyOthersControl
+
+congruencyObjectsControl <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(primeSource == "objects") %>%
+  mixed(
+    logRT ~ (primeCondition * targetCondition) * (Key + firstBlock + firstValence) + (1|Subject) + (1|targetWord),
+    data = .,
+    method = "S",
+    check_contrasts = TRUE,
+    contrasts = list(primeCondition = contr.sum(2), targetCondition = contr.sum(2))
+  )
+congruencyObjectsControl
+
+congruencyNounsControl <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(primeSource == "noun") %>%
+  mixed(
+    logRT ~ (primeCondition * targetCondition * Block) * (Key + firstBlock + firstValence) +  (1|Subject) + (1|targetWord),
+    data = .,
+    method = "S",
+    check_contrasts = TRUE,
+    contrasts = list(primeCondition = contr.sum(2), targetCondition = contr.sum(2))
+  )
+congruencyNounsControl
+
+```
+
+```{r Specific Contrasts Others/Objects, options}
+
+congruencyOthersControl %>%
+  emmeans(~primeCondition:targetCondition:firstBlock) %>%
+  contrast(by=c("primeCondition","targetCondition"))
+
+congruencyObjectsControl %>%
+  emmeans(~primeCondition:targetCondition:firstBlock) %>%
+  contrast(by=c("primeCondition","targetCondition"))
+
+```
+
+For Others (with lackluster alpha inflation):
+  primeCondition = othersNeg, targetCondition = Neg:
+    contrast       estimate     SE  df t.ratio p.value
+    Objects effect  -0.0330 0.0186 110 -1.769  0.0797 
+    Others effect    0.0330 0.0186 110  1.769  0.0797 
+
+For Objects (with lackluster alpha inflation):
+  primeCondition = objectsNeg, targetCondition = Neg:
+    contrast       estimate     SE  df t.ratio p.value
+    Objects effect  0.04044 0.0200 105  2.026  0.0453 
+    Others effect  -0.04044 0.0200 105 -2.026  0.0453 
+
+```{r Specific Contrasts Nouns, options}
+
+congruencyNounsControl %>%
+  emmeans(~Block)
+
+congruencyNounsControl %>%
+  emmeans(~Block:firstBlock) %>%
+  contrast
+
+```
+
+For Nouns:
+
+ Block   emmean     SE  df asymp.LCL asymp.UCL
+ Objects   6.45 0.0172 Inf      6.42      6.49
+ Others    6.49 0.0172 Inf      6.46      6.53
+ 
+ Block - firstBlock      estimate     SE  df z.ratio p.value
+ Objects Objects effect  -0.00947 0.0163 Inf -0.582  0.6546 
+ Others  Objects effect  -0.00727 0.0162 Inf -0.447  0.6546 
+ Objects Others  effect  -0.03128 0.0163 Inf -1.923  0.1089 
+ Others  Others  effect   0.04802 0.0163 Inf  2.954  0.0125 
+
+##################
+### Others-Nouns
+##################
+
+```{r Nouns within Block, options}
+
+afex::set_effects_contrasts()
+
+comparisonOthersNouns <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(Block == "Others" & primeSource %in% c("others","noun")) %>%
+  mixed(
+    logRT ~ primeValence * targetCondition * primeSource + (1|targetWord) + (1|Subject),
+    data = .,
+    method = "S"
+  )
+comparisonOthersNouns
+
+```
+
+                                    Effect         df      F p.value
+1                             primeValence 1, 4104.91  12.59   .0004 ***
+2                          targetCondition 1,   13.97  8.15    .01   *
+3                              primeSource 1, 4104.10  0.09    .77
+4             primeValence:targetCondition 1, 4110.07  92.09  <.0001 ***
+5                 primeValence:primeSource 1, 4104.53  9.84    .002  ** 
+6              targetCondition:primeSource 1, 4103.92  0.00   >.99
+7 primeValence:targetCondition:primeSource 1, 4104.59  2.05    .15
+
+The only effect of primeSource seems to be on primeValence
+
+```{r PrimeSource Contrasts, options}
+
+comparisonOthersNouns %>%
+  emmeans(~primeValence:primeSource) %>% contrast
+
+```
+
+ contrast          estimate      SE  df z.ratio p.value
+ Neg,noun effect    0.00042 0.00633 Inf  0.066  0.9470 
+ Pos,noun effect   -0.00257 0.00626 Inf -0.410  0.9088 
+ Neg,others effect  0.02531 0.00627 Inf  4.033  0.0002 
+ Pos,others effect -0.02316 0.00625 Inf -3.705  0.0004 
+
+```{r Specific Contrasts, options}
+
+emmeansOthersNouns <- comparisonOthersNouns %>%
+  emmeans(~primeValence*targetCondition*primeSource)
+
+contrastsOthersNouns <- emmeansOthersNouns %>%
+  contrast(method="revpairwise") %>%
+  as_tibble %>%
+  separate(
+    contrast,
+    c("primeValenceA","targetValenceA","primeSourceA","primeValenceB","targetValenceB","primeSourceB")
+  )
+
+specificContrastsNouns <- contrastsOthersNouns %>%
+  filter(
+    targetValenceA == targetValenceB,
+    primeSourceA != primeSourceB,
+    primeValenceA != targetValenceA
+  ) %>%
+  select(-targetValenceB)
+
+```
+
+Expected results, with no difference between others and nouns for the incongruent conditions,
+ and significant differences between incongruent others and congruent nouns with the same target valence, showing slower incongruent trials.
+
+
+#####################
+### Others-Objects
+#####################
+
+```{r Objects between Block, options}
+
+afex::set_effects_contrasts()
+
+comparisonOthersObjectsBlock <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(primeSource %in% c("others","objects")) %>%
+  mixed(
+    logRT ~ primeValence * targetCondition * primeSource * firstBlock + (1|targetWord) + (1|Subject),
+    data = .,
+    method = "S"
+  )
+comparisonOthersObjectsBlock
+
+```
+
+I am not sure whether it is sufficient to include firstBlock as a random intercept?
+Including full random slopes for firstBlock does not result in convergence.
+A simpler model, only including slopes for primeSource (since the interaction primeSource:firstBlock is highly significant) does converge.
+
+```{r Objects between Block, options}
+
+afex::set_effects_contrasts()
+
+comparisonOthersObjectsBlockRandom <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(primeSource %in% c("others","objects")) %>%
+  mixed(
+    logRT ~ primeValence * targetCondition * primeSource + (primeSource|firstBlock) + (1|targetWord) + (1|Subject),
+    data = .,
+    method = "S"
+  )
+comparisonOthersObjectsBlockRandom
+
+```
+
+Note that the addition of firstBlock as a random intercept with slope on primeSource fully removes the main effect primeSource seemed to have.
+As an additional test, we opted to perform the above analyses between subject, instead of between block.
+
+```{r Objects between Subject, options}
+
+afex::set_effects_contrasts()
+
+comparisonOthersObjectsSubject <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(primeSource %in% c("others","objects")) %>%
+  filter(Block == firstBlock) %>%
+  mixed(
+    logRT ~ primeValence * targetCondition * primeSource + (1|targetWord) + (1|Subject),
+    data = .,
+    method = "S"
+  )
+comparisonOthersObjectsSubject
+
+```
+
+                                    Effect         df      F p.value
+1                             primeValence 1, 1997.04  10.32    .001  **
+2                          targetCondition 1,   13.72   8.82    .01   *
+3                              primeSource 1,   67.95   0.35    .56
+4             primeValence:targetCondition 1, 2000.87  12.25    .0005 ***
+5                 primeValence:primeSource 1, 1997.72   2.12    .15
+6              targetCondition:primeSource 1, 1995.36   0.63    .43
+7 primeValence:targetCondition:primeSource 1, 2001.10   5.07    .02   *
+
+These results follow the results of the model including random slopes for firstBlock.
+
+```{r Contrasts, options}
+
+emmeansOthersObjectsBlock <- comparisonOthersObjectsBlockRandom %>%
+  emmeans(~primeValence*targetCondition*primeSource)
+
+emmeansOthersObjectsSubject <- comparisonOthersObjectsSubject %>%
+  emmeans(~primeValence*targetCondition*primeSource)
+
+```
+
+
+###########
+#### Graph
+###########
+
+```{r Graphs, options}
+
+  emmeansOthersObjectsBlock %>%
+    as_tibble %>%
+    mutate(primeSource = factor(primeSource,levels=c("others","objects"))) %>%
+    ggplot(aes(x=factor(primeValence,levels=c("Pos","Neg")),y=exp(emmean),group=primeSource,fill=targetCondition)) +
+    geom_col(position=position_dodge2()) +
+    facet_wrap('primeSource',scales = "fixed",strip.position = "bottom") +
+    labs(x = "Prime Valence", y = "Reaction Time", fill = "Target\nValence", title = "Random Slope Model") +
+    theme(
+      panel.spacing = unit(0,"lines"),
+      strip.background = element_blank(),
+      strip.placement = "outside",
+      strip.text = element_text(size=13.5,margin = margin(.15,0,.15,0,unit="cm"))
+    )
+
+  emmeansOthersObjectsSubject %>%
+    as_tibble %>%
+    mutate(primeSource = factor(primeSource,levels=c("others","objects"))) %>%
+    ggplot(aes(x=factor(primeValence,levels=c("Pos","Neg")),y=exp(emmean),group=primeSource,fill=targetCondition)) +
+    geom_col(position=position_dodge2()) +
+    facet_wrap('primeSource',scales = "fixed",strip.position = "bottom") +
+    labs(x = "Prime Valence", y = "Reaction Time", fill = "Target\nValence", title = "Between Subjects Model") +
+    theme(
+      panel.spacing = unit(0,"lines"),
+      strip.background = element_blank(),
+      strip.placement = "outside",
+      strip.text = element_text(size=13.5,margin = margin(.15,0,.15,0,unit="cm"))
+    )
+
+```
+
+The only visible difference is for negative objects, where the Random Slope Model indicates higher latency for positive target trials in comparison to the Between-Subjects Model
+
+################
+#### Contrasts
+################
+
+```{r Comparing Prime Valence, options}
+
+contrastsOthersObjects <- emmeansOthersObjectsBlock %>%
+  contrast(method="revpairwise") %>%
+  as_tibble %>%
+  separate(
+    contrast,
+    c("primeValenceA","targetValenceA","primeSourceA","primeValenceB","targetValenceB","primeSourceB")
+  )
+
+
+```
+
+
+
+#####################
+### Others - Letter
+#####################
+
+```{r simple model, options}
+
+comparisonOthersLetter <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(primeSource %in% c("others","letter")) %>%
+  filter(Block == "Others") %>%
+  mutate(
+    primeValence = primeValence %>%
+      factor(levels = c("Str","Pos","Neg")),
+    targetCondition = targetCondition %>%
+      factor(levels = c("Pos","Neg"))
+  ) %>%
+  mixed(
+    logRT ~ primeValence * targetCondition + (1|targetWord) + (1|Subject),
+    data = .,
+    method = "S",
+    check_contrasts = FALSE,
+    contrasts = list(
+      "primeValence" = contr.treatment(3),
+      "targetCondition" = contr.sum(2)
+    )
+  )
+comparisonOthersLetter
+
+```
+
+```{r contrasts, options}
+
+emmeansOthersLetter <- comparisonOthersLetter %>%
+  emmeans(~primeValence*targetCondition)
+
+contrastsOthersLetter <- emmeansOthersLetter %>%
+  contrast(method="revpairwise") %>%
+  as_tibble %>%
+  separate(
+    contrast,
+    c("primeValenceA","targetValenceA","primeValenceB","targetValenceB")
+  )
+
+```
+
+
+```{r graph, options}
+
+graphOthersLetter <- emmeansOthersLetter %>%
+  as_tibble %>%
+  mutate(
+    RT = emmean %>% exp
+  ) %>% {
+    left_join(
+      filter(.,primeValence != "Str"),
+      select(.,primeValence,RT,targetCondition) %>%
+        spread(primeValence,RT) %>%
+        gather(primeValence,RT,Pos,Neg) %>%
+        mutate(
+          deltaRT = subtract(RT,Str)
+        ) %>%
+        select(-RT,-Str),
+      by=c("primeValence","targetCondition")
+    )
+  } %>%
+  select(primeValence,targetCondition,RT,deltaRT,everything()) %>%
+  ggplot(aes(x=factor(primeValence,levels = c("Pos","Neg")),y=deltaRT,fill=factor(targetCondition,levels=c("Pos","Neg")))) +
+  geom_col(position=position_dodge2()) +
+  labs(x=NULL,y=expression(Delta * " Reaction Time (ms)"),title="Others - Strings") +
+  guides(fill=guide_legend(title="Target\nValence")) +
+  scale_y_continuous(breaks = seq(-20,100,20),limits = c(-30,60)) +
+  geom_label(
+    data = contrastsOthersLetter %>%
+      filter(
+        targetValenceA == targetValenceB,
+        primeValenceB == "Str"
+      ) %>%
+      mutate(
+        p = case_when(
+          p.value < .001 ~ '***',
+          p.value < .01 ~ '**',
+          p.value < .05 ~ '*',
+          TRUE ~ p.value %>% signif(3) %>% as.character %>% gsub("^0.",".",.)
+        )
+      ),
+    aes(x=factor(primeValenceA,levels = c("Pos","Neg")),y=0,label=p,group=factor(targetValenceA,levels=c("Pos","Neg"))),
+    position=position_dodge2(width=.9),
+    inherit.aes = FALSE
+  )
+
+```
+
+
+######################
+### Objects - Letter
+######################
+
+```{r simple model, options}
+
+comparisonObjectsLetter <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(primeSource %in% c("objects","letter")) %>%
+  filter(Block == "Objects") %>%
+  mutate(
+    primeValence = primeValence %>%
+      factor(levels = c("Str","Pos","Neg")),
+    targetCondition = targetCondition %>%
+      factor(levels = c("Pos","Neg"))
+  ) %>%
+  mixed(
+    logRT ~ primeValence * targetCondition + (1|targetWord) + (1|Subject),
+    data = .,
+    method = "S",
+    check_contrasts = FALSE,
+    contrasts = list(
+      "primeValence" = contr.treatment(3),
+      "targetCondition" = contr.sum(2)
+    )
+  )
+comparisonObjectsLetter
+
+```
+
+```{r contrasts, options}
+
+emmeansObjectsLetter <- comparisonObjectsLetter %>%
+  emmeans(~primeValence*targetCondition)
+
+contrastsObjectsLetter <- emmeansObjectsLetter %>%
+  contrast(method="revpairwise") %>%
+  as_tibble %>%
+  separate(
+    contrast,
+    c("primeValenceA","targetValenceA","primeValenceB","targetValenceB")
+  )
+
+```
+
+
+```{r graph, options}
+
+graphObjectsLetter <- emmeansObjectsLetter %>%
+  as_tibble %>%
+  mutate(
+    RT = emmean %>% exp
+  ) %>% {
+    left_join(
+      filter(.,primeValence != "Str"),
+      select(.,primeValence,RT,targetCondition) %>%
+        spread(primeValence,RT) %>%
+        gather(primeValence,RT,Pos,Neg) %>%
+        mutate(
+          deltaRT = subtract(RT,Str)
+        ) %>%
+        select(-RT,-Str),
+      by=c("primeValence","targetCondition")
+    )
+  } %>%
+  select(primeValence,targetCondition,RT,deltaRT,everything()) %>%
+  ggplot(aes(x=factor(primeValence,levels = c("Pos","Neg")),y=deltaRT,fill=factor(targetCondition,levels=c("Pos","Neg")))) +
+  geom_col(position=position_dodge2()) +
+  labs(x=NULL,y=expression(Delta * " Reaction Time (ms)"),title="Objects - Strings") +
+  guides(fill=guide_legend(title="Target\nValence")) +
+  scale_y_continuous(breaks = seq(-20,100,20),limits = c(-30,60)) +
+  geom_label(
+    data = contrastsObjectsLetter %>%
+      filter(
+        targetValenceA == targetValenceB,
+        primeValenceB == "Str"
+      ) %>%
+      mutate(
+        p = case_when(
+          p.value < .001 ~ '***',
+          p.value < .01 ~ '**',
+          p.value < .05 ~ '*',
+          TRUE ~ p.value %>% signif(3) %>% as.character %>% gsub("^0.",".",.)
+        )
+      ),
+    aes(x=factor(primeValenceA,levels = c("Pos","Neg")),y=0,label=p,group=factor(targetValenceA,levels=c("Pos","Neg"))),
+    position=position_dodge2(width=.9),
+    inherit.aes = FALSE
+  )
+
+```
+
+
+```{r Combined Plot Object - Other, options}
+
+plot_grid(
+  graphObjectsLetter +
+    theme(
+      legend.position = "none",
+      panel.grid.major.y = element_line()
+    ),
+  NULL,
+  graphOthersLetter +
+    theme(
+      axis.title.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      axis.text.y = element_blank(),
+      axis.line.y=element_blank(),
+      panel.grid.major.y = element_line()
+    ),
+  rel_widths = c(1,-.1,1.1),
+  nrow=1
+) %>%
+  save_plot("ObjectsOthersLetters.svg",.,device="svg",base_aspect_ratio = 1.4, base_height = 6)
+
+
+```
+
+
+
+
+
+##################
+### Others-Nouns
+##################
+
+```{r Nouns within Block, options}
+
+afex::set_effects_contrasts()
+
+comparisonOthersNouns <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(Block == "Others" & primeSource %in% c("others","noun")) %>%
+  mixed(
+    logRT ~ primeValence * targetCondition * primeSource + (1|targetWord) + (1|Subject),
+    data = .,
+    method = "S"
+  )
+comparisonOthersNouns
+
+```
+
+                                    Effect         df      F p.value
+1                             primeValence 1, 4104.91  12.59   .0004 ***
+2                          targetCondition 1,   13.97  8.15    .01   *
+3                              primeSource 1, 4104.10  0.09    .77
+4             primeValence:targetCondition 1, 4110.07  92.09  <.0001 ***
+5                 primeValence:primeSource 1, 4104.53  9.84    .002  ** 
+6              targetCondition:primeSource 1, 4103.92  0.00   >.99
+7 primeValence:targetCondition:primeSource 1, 4104.59  2.05    .15
+
+The only effect of primeSource seems to be on primeValence
+
+```{r PrimeSource Contrasts, options}
+
+comparisonOthersNouns %>%
+  emmeans(~primeValence:primeSource) %>% contrast
+
+```
+
+ contrast          estimate      SE  df z.ratio p.value
+ Neg,noun effect    0.00042 0.00633 Inf  0.066  0.9470 
+ Pos,noun effect   -0.00257 0.00626 Inf -0.410  0.9088 
+ Neg,others effect  0.02531 0.00627 Inf  4.033  0.0002 
+ Pos,others effect -0.02316 0.00625 Inf -3.705  0.0004 
+
+```{r Specific Contrasts, options}
+
+emmeansOthersNouns <- comparisonOthersNouns %>%
+  emmeans(~primeValence*targetCondition*primeSource)
+
+contrastsOthersNouns <- emmeansOthersNouns %>%
+  contrast(method="revpairwise") %>%
+  as_tibble %>%
+  separate(
+    contrast,
+    c("primeValenceA","targetValenceA","primeSourceA","primeValenceB","targetValenceB","primeSourceB")
+  )
+
+specificContrastsNouns <- contrastsOthersNouns %>%
+  filter(
+    targetValenceA == targetValenceB,
+    primeSourceA != primeSourceB,
+    primeValenceA != targetValenceA
+  ) %>%
+  select(-targetValenceB)
+
+```
+
+Expected results, with no difference between others and nouns for the incongruent conditions,
+ and significant differences between incongruent others and congruent nouns with the same target valence, showing slower incongruent trials.
+
+
+
+
+
+
+#######
+# OLD
+#######
 
 Possibility:
 set contrasts of the primeCondition to treatment (with the letter strings as base), but
