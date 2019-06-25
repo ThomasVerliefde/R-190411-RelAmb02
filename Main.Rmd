@@ -1,11 +1,11 @@
 ---
-Title: "Main"
-Author: "Thomas Verliefde"
-Date: "2019/06/09"
+Author: Thomas Verliefde
+Date: 2019/06/25
 Output: html_document
+Title: Main
+Version: '1.0'
 editor_options:
   chunk_output_type: console
-Version: '1.0'
 ---
 
 ```{r setup, include=FALSE}
@@ -85,7 +85,7 @@ The ambiSuggestions variable missing is no issue for this exp.
 Subject 107 apparently performed the experiment twice. Only the results from the first experiment will be used.
 This is ensured during the import of the data by specifying "n_max = 1".
 
-```{r NA in RAW, exclude=TRUE}
+```{r NA in RAW, eval=FALSE, exclude=TRUE, include=FALSE}
 
 RAW %>%
   select(
@@ -126,7 +126,7 @@ RAW %<>%
 ## Provided Others & Objects 
 #############################
 
-```{r Others & Objects, options}
+```{r Others & Objects, eval=FALSE, include=FALSE}
 
 RAW %>%
   select(Subject,starts_with("collect"),ends_with("Rel")) %>%
@@ -153,7 +153,7 @@ RAW %>%
 
 ```{r Trials - Wrangling, options}
 
-testdfTrials <- RAW %>%
+dfTrials <- RAW %>%
   gather(
     "fullTrials",
     "outputTrials",
@@ -407,8 +407,6 @@ dfTrials %>%
 
 ```
 
-5 included participants with accuracy scores below .80
-
 ############
 # Analyses
 ############
@@ -611,18 +609,19 @@ contrastsOthersNouns <- emmeansOthersNouns %>%
     c("primeValenceA","targetValenceA","primeSourceA","primeValenceB","targetValenceB","primeSourceB")
   )
 
-specificContrastsNouns <- contrastsOthersNouns %>%
+specificContrastsOthersNouns <- contrastsOthersNouns %>%
   filter(
     targetValenceA == targetValenceB,
     primeSourceA != primeSourceB,
     primeValenceA != targetValenceA
   ) %>%
   select(-targetValenceB)
+specificContrastsOthersNouns
 
 ```
 
 Expected results, with no difference between others and nouns for the incongruent conditions,
- and significant differences between incongruent others and congruent nouns with the same target valence, showing slower incongruent trials.
+ and significant difference between incongruent others and congruent nouns with the same target valence, showing slower incongruent trials.
 
 
 #####################
@@ -645,11 +644,25 @@ comparisonOthersObjectsBlock
 
 ```
 
+```{r Interaction primeSource:firstBlock, options}
+
+comparisonOthersObjectsBlock %>%
+  emmeans(~primeSource:firstBlock)
+
+comparisonOthersObjectsBlock %>%
+  emmeans(~primeSource:firstBlock) %>%
+  contrast(method="pairwise")
+
+```
+
+The interaction between primeSource and firstBlock seems to be along the lines where the first block resulted in higher latencies in comparison to the second block.
+
+
 I am not sure whether it is sufficient to include firstBlock as a random intercept?
 Including full random slopes for firstBlock does not result in convergence.
 A simpler model, only including slopes for primeSource (since the interaction primeSource:firstBlock is highly significant) does converge.
 
-```{r Objects between Block, options}
+```{r Objects between Block Random, options}
 
 afex::set_effects_contrasts()
 
@@ -696,7 +709,7 @@ comparisonOthersObjectsSubject
 
 These results follow the results of the model including random slopes for firstBlock.
 
-```{r Contrasts, options}
+```{r Contrasts others objects, options}
 
 emmeansOthersObjectsBlock <- comparisonOthersObjectsBlockRandom %>%
   emmeans(~primeValence*targetCondition*primeSource)
@@ -711,8 +724,9 @@ emmeansOthersObjectsSubject <- comparisonOthersObjectsSubject %>%
 #### Graph
 ###########
 
-```{r Graphs, options}
+```{r Graphs others objects, options}
 
+plot_grid(
   emmeansOthersObjectsBlock %>%
     as_tibble %>%
     mutate(primeSource = factor(primeSource,levels=c("others","objects"))) %>%
@@ -720,13 +734,18 @@ emmeansOthersObjectsSubject <- comparisonOthersObjectsSubject %>%
     geom_col(position=position_dodge2()) +
     facet_wrap('primeSource',scales = "fixed",strip.position = "bottom") +
     labs(x = "Prime Valence", y = "Reaction Time", fill = "Target\nValence", title = "Random Slope Model") +
+    scale_y_continuous(limits=c(0,750)) +
     theme(
       panel.spacing = unit(0,"lines"),
       strip.background = element_blank(),
       strip.placement = "outside",
       strip.text = element_text(size=13.5,margin = margin(.15,0,.15,0,unit="cm"))
-    )
-
+    ) +
+    theme(
+      legend.position="none",
+      panel.grid.major.y = element_line()
+    ),
+  NULL,
   emmeansOthersObjectsSubject %>%
     as_tibble %>%
     mutate(primeSource = factor(primeSource,levels=c("others","objects"))) %>%
@@ -734,16 +753,28 @@ emmeansOthersObjectsSubject <- comparisonOthersObjectsSubject %>%
     geom_col(position=position_dodge2()) +
     facet_wrap('primeSource',scales = "fixed",strip.position = "bottom") +
     labs(x = "Prime Valence", y = "Reaction Time", fill = "Target\nValence", title = "Between Subjects Model") +
+    scale_y_continuous(limits=c(0,750)) +
     theme(
       panel.spacing = unit(0,"lines"),
       strip.background = element_blank(),
       strip.placement = "outside",
       strip.text = element_text(size=13.5,margin = margin(.15,0,.15,0,unit="cm"))
-    )
+    ) +
+    theme(
+      axis.title.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      axis.text.y = element_blank(),
+      axis.line.y=element_blank(),
+      panel.grid.major.y = element_line()
+    ),
+  nrow = 1,
+  rel_widths = c(1,-.06,1.1)
+)
 
 ```
 
-The only visible difference is for negative objects, where the Random Slope Model indicates higher latency for positive target trials in comparison to the Between-Subjects Model
+There seems to be some differences between the models, at the very least regarding overall latency.
+
 
 ################
 #### Contrasts
@@ -759,16 +790,15 @@ contrastsOthersObjects <- emmeansOthersObjectsBlock %>%
     c("primeValenceA","targetValenceA","primeSourceA","primeValenceB","targetValenceB","primeSourceB")
   )
 
-
 ```
 
-
+Additional Tests to do
 
 #####################
 ### Others - Letter
 #####################
 
-```{r simple model, options}
+```{r simple model others, options}
 
 comparisonOthersLetter <- dfTrials %>%
   filter(Inclusion) %>%
@@ -794,10 +824,11 @@ comparisonOthersLetter
 
 ```
 
-```{r contrasts, options}
+```{r contrasts others, options}
 
 emmeansOthersLetter <- comparisonOthersLetter %>%
   emmeans(~primeValence*targetCondition)
+emmeansOthersLetter
 
 contrastsOthersLetter <- emmeansOthersLetter %>%
   contrast(method="revpairwise") %>%
@@ -806,11 +837,12 @@ contrastsOthersLetter <- emmeansOthersLetter %>%
     contrast,
     c("primeValenceA","targetValenceA","primeValenceB","targetValenceB")
   )
+contrastsOthersLetter
 
 ```
 
 
-```{r graph, options}
+```{r graph others, options}
 
 graphOthersLetter <- emmeansOthersLetter %>%
   as_tibble %>%
@@ -861,7 +893,7 @@ graphOthersLetter <- emmeansOthersLetter %>%
 ### Objects - Letter
 ######################
 
-```{r simple model, options}
+```{r simple model objects, options}
 
 comparisonObjectsLetter <- dfTrials %>%
   filter(Inclusion) %>%
@@ -887,10 +919,11 @@ comparisonObjectsLetter
 
 ```
 
-```{r contrasts, options}
+```{r contrasts objects, options}
 
 emmeansObjectsLetter <- comparisonObjectsLetter %>%
   emmeans(~primeValence*targetCondition)
+emmeansObjectsLetter
 
 contrastsObjectsLetter <- emmeansObjectsLetter %>%
   contrast(method="revpairwise") %>%
@@ -899,11 +932,12 @@ contrastsObjectsLetter <- emmeansObjectsLetter %>%
     contrast,
     c("primeValenceA","targetValenceA","primeValenceB","targetValenceB")
   )
+contrastsObjectsLetter
 
 ```
 
 
-```{r graph, options}
+```{r graph objects, options}
 
 graphObjectsLetter <- emmeansObjectsLetter %>%
   as_tibble %>%
@@ -954,12 +988,15 @@ graphObjectsLetter <- emmeansObjectsLetter %>%
 
 plot_grid(
   graphObjectsLetter +
+  scale_y_reverse(breaks = seq(60,-100,-20),limits = c(60,-30)) +
     theme(
       legend.position = "none",
       panel.grid.major.y = element_line()
     ),
   NULL,
   graphOthersLetter +
+    coord_trans(y="reverse") +
+  scale_y_reverse(breaks = seq(60,-100,-20),limits = c(60,-30)) +
     theme(
       axis.title.y = element_blank(),
       axis.ticks.y = element_blank(),
@@ -967,7 +1004,7 @@ plot_grid(
       axis.line.y=element_blank(),
       panel.grid.major.y = element_line()
     ),
-  rel_widths = c(1,-.1,1.1),
+  rel_widths = c(1,-.075,1.1),
   nrow=1
 ) %>%
   save_plot("ObjectsOthersLetters.svg",.,device="svg",base_aspect_ratio = 1.4, base_height = 6)
@@ -976,59 +1013,52 @@ plot_grid(
 ```
 
 
-
-
-
 ##################
-### Others-Nouns
+### Objects-Nouns
 ##################
 
-```{r Nouns within Block, options}
+```{r Nouns within Block - Objects, options}
 
 afex::set_effects_contrasts()
 
-comparisonOthersNouns <- dfTrials %>%
+comparisonObjectsNouns <- dfTrials %>%
   filter(Inclusion) %>%
-  filter(Block == "Others" & primeSource %in% c("others","noun")) %>%
+  filter(Block == "Objects" & primeSource %in% c("objects","noun")) %>%
   mixed(
     logRT ~ primeValence * targetCondition * primeSource + (1|targetWord) + (1|Subject),
     data = .,
     method = "S"
   )
-comparisonOthersNouns
+comparisonObjectsNouns
 
 ```
 
-                                    Effect         df      F p.value
-1                             primeValence 1, 4104.91  12.59   .0004 ***
-2                          targetCondition 1,   13.97  8.15    .01   *
-3                              primeSource 1, 4104.10  0.09    .77
-4             primeValence:targetCondition 1, 4110.07  92.09  <.0001 ***
-5                 primeValence:primeSource 1, 4104.53  9.84    .002  ** 
-6              targetCondition:primeSource 1, 4103.92  0.00   >.99
-7 primeValence:targetCondition:primeSource 1, 4104.59  2.05    .15
+                                    Effect         df         F p.value
+1                             primeValence 1, 4061.93      2.47     .12
+2                          targetCondition   1, 13.75    6.44 *     .02
+3                              primeSource 1, 4061.28   9.14 **    .003
+4             primeValence:targetCondition 1, 4067.89 30.97 ***  <.0001
+5                 primeValence:primeSource 1, 4061.33      1.96     .16
+6              targetCondition:primeSource 1, 4060.71    3.20 +     .07
+7 primeValence:targetCondition:primeSource 1, 4061.71      0.18     .67
 
-The only effect of primeSource seems to be on primeValence
+Here we have a main effect of primeSource, without the interaction on primeValence
 
-```{r PrimeSource Contrasts, options}
+```{r PrimeSource Contrasts - Objects, options}
 
-comparisonOthersNouns %>%
-  emmeans(~primeValence:primeSource) %>% contrast
+comparisonObjectsNouns %>%
+  emmeans(~primeSource) %>% contrast
 
 ```
 
- contrast          estimate      SE  df z.ratio p.value
- Neg,noun effect    0.00042 0.00633 Inf  0.066  0.9470 
- Pos,noun effect   -0.00257 0.00626 Inf -0.410  0.9088 
- Neg,others effect  0.02531 0.00627 Inf  4.033  0.0002 
- Pos,others effect -0.02316 0.00625 Inf -3.705  0.0004 
+The effect seems to be that objects are generally slower.
 
-```{r Specific Contrasts, options}
+```{r Specific Contrasts - Objects, options}
 
-emmeansOthersNouns <- comparisonOthersNouns %>%
+emmeansObjectsNouns <- comparisonObjectsNouns %>%
   emmeans(~primeValence*targetCondition*primeSource)
 
-contrastsOthersNouns <- emmeansOthersNouns %>%
+contrastsObjectsNouns <- emmeansObjectsNouns %>%
   contrast(method="revpairwise") %>%
   as_tibble %>%
   separate(
@@ -1036,314 +1066,312 @@ contrastsOthersNouns <- emmeansOthersNouns %>%
     c("primeValenceA","targetValenceA","primeSourceA","primeValenceB","targetValenceB","primeSourceB")
   )
 
-specificContrastsNouns <- contrastsOthersNouns %>%
+specificContrastsObjectsNouns <- contrastsObjectsNouns %>%
   filter(
     targetValenceA == targetValenceB,
     primeSourceA != primeSourceB,
     primeValenceA != targetValenceA
   ) %>%
   select(-targetValenceB)
+specificContrastsObjectsNouns
 
 ```
 
-Expected results, with no difference between others and nouns for the incongruent conditions,
- and significant differences between incongruent others and congruent nouns with the same target valence, showing slower incongruent trials.
+Again, no differences between the incongruent trials between sources, and strong differences between incongruent objects and congruent nouns.
 
 
 
 
+<!-- ####### -->
+<!-- # OLD -->
+<!-- ####### -->
+
+<!-- Possibility: -->
+<!-- set contrasts of the primeCondition to treatment (with the letter strings as base), but -->
+<!-- with contrasts for targetCondition to [-1, 1] for Neg and Pos respectively. -->
+
+<!-- ```{r Random Intercepts subject & target, options} -->
+
+<!-- afex::set_effects_contrasts() -->
+<!-- fitBoth1 <- dfTrials %>% -->
+<!--   filter(Inclusion) %>% { -->
+<!--     mixed( -->
+<!--       logRT ~ primeCondition * targetCondition + Block + (1|targetWord) + (1|Subject), -->
+<!--       data = ., -->
+<!--       method = "S" -->
+<!--     ) -->
+<!--   } -->
+
+<!-- afex::set_effects_contrasts() -->
+<!-- fitBoth2 <- dfTrials %>% -->
+<!--   filter(Inclusion) %>% { -->
+<!--     mixed( -->
+<!--       logRT ~ primeCondition * targetCondition + (1|Block) + (1|targetWord) + (1|Subject), -->
+<!--       data = ., -->
+<!--       method = "S" -->
+<!--     ) -->
+<!--   } -->
+
+<!-- afex::set_effects_contrasts() -->
+<!-- fitObj <- dfTrials %>% -->
+<!--   filter(Inclusion & Block == "Objects") %>% { -->
+<!--     mixed( -->
+<!--       logRT ~ primeCondition * targetCondition + (1|targetWord) + (1|Subject), -->
+<!--       data = ., -->
+<!--       method = "S" -->
+<!--     ) -->
+<!--   } -->
+
+<!-- afex::set_effects_contrasts() -->
+<!-- fitOth <- dfTrials %>% -->
+<!--   filter(Inclusion & Block == "Others") %>% { -->
+<!--     mixed( -->
+<!--       logRT ~ primeCondition * targetCondition + (1|targetWord) + (1|Subject), -->
+<!--       data = ., -->
+<!--       method = "S" -->
+<!--     ) -->
+<!--   } -->
 
 
-#######
-# OLD
-#######
+<!-- ``` -->
 
-Possibility:
-set contrasts of the primeCondition to treatment (with the letter strings as base), but
-with contrasts for targetCondition to [-1, 1] for Neg and Pos respectively.
+<!-- ```{r Estimated Means, options} -->
 
-```{r Random Intercepts subject & target, options}
+<!-- emmeansFull1 <- fitBoth1 %>% emmeans(~primeCondition * targetCondition + Block) -->
 
-afex::set_effects_contrasts()
-fitBoth1 <- dfTrials %>%
-  filter(Inclusion) %>% {
-    mixed(
-      logRT ~ primeCondition * targetCondition + Block + (1|targetWord) + (1|Subject),
-      data = .,
-      method = "S"
-    )
-  }
+<!-- emmeansFull2 <- fitBoth2 %>% emmeans(~primeCondition * targetCondition) -->
 
-afex::set_effects_contrasts()
-fitBoth2 <- dfTrials %>%
-  filter(Inclusion) %>% {
-    mixed(
-      logRT ~ primeCondition * targetCondition + (1|Block) + (1|targetWord) + (1|Subject),
-      data = .,
-      method = "S"
-    )
-  }
+<!-- emmeansObj <- fitObj %>% emmeans(~primeCondition * targetCondition) -->
 
-afex::set_effects_contrasts()
-fitObj <- dfTrials %>%
-  filter(Inclusion & Block == "Objects") %>% {
-    mixed(
-      logRT ~ primeCondition * targetCondition + (1|targetWord) + (1|Subject),
-      data = .,
-      method = "S"
-    )
-  }
+<!-- emmeansOth <- fitOth %>% emmeans(~primeCondition * targetCondition) -->
 
-afex::set_effects_contrasts()
-fitOth <- dfTrials %>%
-  filter(Inclusion & Block == "Others") %>% {
-    mixed(
-      logRT ~ primeCondition * targetCondition + (1|targetWord) + (1|Subject),
-      data = .,
-      method = "S"
-    )
-  }
+<!-- ``` -->
 
+<!-- ```{r Contrasts, options} -->
 
-```
+<!-- contrFull1 <- emmeansFull1 %>% -->
+<!--   contrast(method="revpairwise") %>% -->
+<!--   as_tibble %>% -->
+<!--   separate(contrast,c("contrastA","contrastB"),sep=" - ") %>% -->
+<!--   separate(contrastA,c("primeA","targetA","blockA"),sep=",") %>% -->
+<!--   separate(contrastB,c("primeB","targetB","blockB"),sep=",") %>% -->
+<!--   mutate_at( -->
+<!--     vars(primeA,primeB), -->
+<!--     funs(factor(.,levels=unique(.) %>% sort(decreasing=TRUE))) -->
+<!--   ) %>% -->
+<!--   mutate_at( -->
+<!--     vars(targetA,targetB), -->
+<!--     funs(factor(.,levels=unique(.) %>% sort(decreasing=TRUE))) -->
+<!--   ) %>% -->
+<!--   arrange(blockA,blockB,primeA %>% desc,primeB %>% desc,targetA) -->
 
-```{r Estimated Means, options}
+<!-- contrFull2 <- emmeansFull2 %>% -->
+<!--   contrast(method="revpairwise") %>% -->
+<!--   as_tibble %>% -->
+<!--   separate(contrast,c("contrastA","contrastB"),sep=" - ") %>% -->
+<!--   separate(contrastA,c("primeA","targetA"),sep=",") %>% -->
+<!--   separate(contrastB,c("primeB","targetB"),sep=",") %>% -->
+<!--   mutate_at( -->
+<!--     vars(primeA,primeB), -->
+<!--     funs(factor(.,levels=unique(.) %>% sort(decreasing=TRUE))) -->
+<!--   ) %>% -->
+<!--   mutate_at( -->
+<!--     vars(targetA,targetB), -->
+<!--     funs(factor(.,levels=unique(.) %>% sort(decreasing=TRUE))) -->
+<!--   ) %>% -->
+<!--   arrange(primeA %>% desc,primeB %>% desc,targetA) -->
 
-emmeansFull1 <- fitBoth1 %>% emmeans(~primeCondition * targetCondition + Block)
+<!-- contrObj <- emmeansObj %>% -->
+<!--   contrast(method="pairwise") %>% -->
+<!--   as_tibble %>% -->
+<!--   separate(contrast,c("contrastA","contrastB"),sep=" - ") %>% -->
+<!--   separate(contrastA,c("primeA","targetA"),sep=",") %>% -->
+<!--   separate(contrastB,c("primeB","targetB"),sep=",") %>% -->
+<!--   mutate_at( -->
+<!--     vars(primeA,primeB), -->
+<!--     funs(factor(.,levels=unique(.) %>% sort(decreasing=TRUE))) -->
+<!--   ) %>% -->
+<!--   mutate_at( -->
+<!--     vars(targetA,targetB), -->
+<!--     funs(factor(.,levels=unique(.) %>% sort(decreasing=TRUE))) -->
+<!--   ) %>% -->
+<!--   arrange(primeA,primeB,targetA) -->
 
-emmeansFull2 <- fitBoth2 %>% emmeans(~primeCondition * targetCondition)
+<!-- contrOth <- emmeansOth %>% -->
+<!--   contrast(method="pairwise") %>% -->
+<!--   as_tibble %>% -->
+<!--   separate(contrast,c("contrastA","contrastB"),sep=" - ") %>% -->
+<!--   separate(contrastA,c("primeA","targetA"),sep=",") %>% -->
+<!--   separate(contrastB,c("primeB","targetB"),sep=",") %>% -->
+<!--   mutate_at( -->
+<!--     vars(primeA,primeB), -->
+<!--     funs(factor(.,levels=unique(.) %>% sort(decreasing=TRUE))) -->
+<!--   ) %>% -->
+<!--   mutate_at( -->
+<!--     vars(targetA,targetB), -->
+<!--     funs(factor(.,levels=unique(.) %>% sort(decreasing=TRUE))) -->
+<!--   ) %>% -->
+<!--   arrange(primeA,primeB,targetA) -->
 
-emmeansObj <- fitObj %>% emmeans(~primeCondition * targetCondition)
+<!-- ``` -->
 
-emmeansOth <- fitOth %>% emmeans(~primeCondition * targetCondition)
+<!-- ############# -->
+<!-- ### Graphs -->
+<!-- ############# -->
 
-```
+<!-- ```{r Emmeans Others & Objects, options} -->
 
-```{r Contrasts, options}
+<!-- plot_grid( -->
+<!--   emmeansOth %>% -->
+<!--     as_tibble %>% -->
+<!--     mutate_at( -->
+<!--       vars(emmean,asymp.LCL,asymp.UCL), -->
+<!--       exp -->
+<!--     ) %>% -->
+<!--     mutate( -->
+<!--       primeCondition = primeCondition %>% -->
+<!--         as.factor %>% -->
+<!--         factor(levels = levels(.) %>% rev) -->
+<!--     ) %>% -->
+<!--     ggplot(aes(x = primeCondition, y = emmean, fill = targetCondition, ymin = asymp.LCL, ymax = asymp.UCL)) + -->
+<!--     geom_col(position=position_dodge2()) + -->
+<!--     labs(x="Prime Conditions",y="Latency (ms)",title=paste("Comparison Estimated Mean Latency for the Others Block")) + -->
+<!--     guides(fill = guide_legend(title="Target\nValence")) + -->
+<!--     scale_fill_discrete(labels=c("Positive","Negative")) + -->
+<!--     geom_errorbar(position = position_dodge2(padding=.8),colour = "black",size=.5) + -->
+<!--     geom_label( -->
+<!--       data = contrOth %>% -->
+<!--         filter(primeA == primeB), -->
+<!--       aes( -->
+<!--         x = primeA, -->
+<!--         y = 10, -->
+<!--         label = p.value %>% signif(3) -->
+<!--       ), -->
+<!--       inherit.aes = FALSE -->
+<!--     ) + -->
+<!--     theme_bw(), -->
+<!--   emmeansObj %>% -->
+<!--     as_tibble %>% -->
+<!--     mutate_at( -->
+<!--       vars(emmean,asymp.LCL,asymp.UCL), -->
+<!--       exp -->
+<!--     ) %>% -->
+<!--     mutate( -->
+<!--       primeCondition = primeCondition %>% -->
+<!--         as.factor %>% -->
+<!--         factor(levels = levels(.) %>% rev) -->
+<!--     ) %>% -->
+<!--     ggplot(aes(x = primeCondition, y = emmean, fill = targetCondition, ymin = asymp.LCL, ymax = asymp.UCL)) + -->
+<!--     geom_col(position=position_dodge2()) + -->
+<!--     labs(x="Prime Conditions",y="Latency (ms)",title=paste("Comparison Estimated Mean Latency for the Objects Block")) + -->
+<!--     guides(fill = guide_legend(title="Target\nValence")) + -->
+<!--     scale_fill_discrete(labels=c("Positive","Negative")) + -->
+<!--     geom_errorbar(position = position_dodge2(padding=.8),colour = "black",size=.5) + -->
+<!--     geom_label( -->
+<!--       data = contrObj %>% -->
+<!--         filter(primeA == primeB), -->
+<!--       aes( -->
+<!--         x = primeA, -->
+<!--         y = 10, -->
+<!--         label = p.value %>% signif(3) -->
+<!--       ), -->
+<!--       inherit.aes = FALSE -->
+<!--     ) + -->
+<!--     theme_bw(), -->
+<!--   ncol = 1, -->
+<!--   align = "hv" -->
+<!-- ) -->
 
-contrFull1 <- emmeansFull1 %>%
-  contrast(method="revpairwise") %>%
-  as_tibble %>%
-  separate(contrast,c("contrastA","contrastB"),sep=" - ") %>%
-  separate(contrastA,c("primeA","targetA","blockA"),sep=",") %>%
-  separate(contrastB,c("primeB","targetB","blockB"),sep=",") %>%
-  mutate_at(
-    vars(primeA,primeB),
-    funs(factor(.,levels=unique(.) %>% sort(decreasing=TRUE)))
-  ) %>%
-  mutate_at(
-    vars(targetA,targetB),
-    funs(factor(.,levels=unique(.) %>% sort(decreasing=TRUE)))
-  ) %>%
-  arrange(blockA,blockB,primeA %>% desc,primeB %>% desc,targetA)
+<!-- ``` -->
 
-contrFull2 <- emmeansFull2 %>%
-  contrast(method="revpairwise") %>%
-  as_tibble %>%
-  separate(contrast,c("contrastA","contrastB"),sep=" - ") %>%
-  separate(contrastA,c("primeA","targetA"),sep=",") %>%
-  separate(contrastB,c("primeB","targetB"),sep=",") %>%
-  mutate_at(
-    vars(primeA,primeB),
-    funs(factor(.,levels=unique(.) %>% sort(decreasing=TRUE)))
-  ) %>%
-  mutate_at(
-    vars(targetA,targetB),
-    funs(factor(.,levels=unique(.) %>% sort(decreasing=TRUE)))
-  ) %>%
-  arrange(primeA %>% desc,primeB %>% desc,targetA)
+<!-- ```{r Comparison Others & Objects, options} -->
 
-contrObj <- emmeansObj %>%
-  contrast(method="pairwise") %>%
-  as_tibble %>%
-  separate(contrast,c("contrastA","contrastB"),sep=" - ") %>%
-  separate(contrastA,c("primeA","targetA"),sep=",") %>%
-  separate(contrastB,c("primeB","targetB"),sep=",") %>%
-  mutate_at(
-    vars(primeA,primeB),
-    funs(factor(.,levels=unique(.) %>% sort(decreasing=TRUE)))
-  ) %>%
-  mutate_at(
-    vars(targetA,targetB),
-    funs(factor(.,levels=unique(.) %>% sort(decreasing=TRUE)))
-  ) %>%
-  arrange(primeA,primeB,targetA)
-
-contrOth <- emmeansOth %>%
-  contrast(method="pairwise") %>%
-  as_tibble %>%
-  separate(contrast,c("contrastA","contrastB"),sep=" - ") %>%
-  separate(contrastA,c("primeA","targetA"),sep=",") %>%
-  separate(contrastB,c("primeB","targetB"),sep=",") %>%
-  mutate_at(
-    vars(primeA,primeB),
-    funs(factor(.,levels=unique(.) %>% sort(decreasing=TRUE)))
-  ) %>%
-  mutate_at(
-    vars(targetA,targetB),
-    funs(factor(.,levels=unique(.) %>% sort(decreasing=TRUE)))
-  ) %>%
-  arrange(primeA,primeB,targetA)
-
-```
-
-#############
-### Graphs
-#############
-
-```{r Emmeans Others & Objects, options}
-
-plot_grid(
-  emmeansOth %>%
-    as_tibble %>%
-    mutate_at(
-      vars(emmean,asymp.LCL,asymp.UCL),
-      exp
-    ) %>%
-    mutate(
-      primeCondition = primeCondition %>%
-        as.factor %>%
-        factor(levels = levels(.) %>% rev)
-    ) %>%
-    ggplot(aes(x = primeCondition, y = emmean, fill = targetCondition, ymin = asymp.LCL, ymax = asymp.UCL)) +
-    geom_col(position=position_dodge2()) +
-    labs(x="Prime Conditions",y="Latency (ms)",title=paste("Comparison Estimated Mean Latency for the Others Block")) +
-    guides(fill = guide_legend(title="Target\nValence")) +
-    scale_fill_discrete(labels=c("Positive","Negative")) +
-    geom_errorbar(position = position_dodge2(padding=.8),colour = "black",size=.5) +
-    geom_label(
-      data = contrOth %>%
-        filter(primeA == primeB),
-      aes(
-        x = primeA,
-        y = 10,
-        label = p.value %>% signif(3)
-      ),
-      inherit.aes = FALSE
-    ) +
-    theme_bw(),
-  emmeansObj %>%
-    as_tibble %>%
-    mutate_at(
-      vars(emmean,asymp.LCL,asymp.UCL),
-      exp
-    ) %>%
-    mutate(
-      primeCondition = primeCondition %>%
-        as.factor %>%
-        factor(levels = levels(.) %>% rev)
-    ) %>%
-    ggplot(aes(x = primeCondition, y = emmean, fill = targetCondition, ymin = asymp.LCL, ymax = asymp.UCL)) +
-    geom_col(position=position_dodge2()) +
-    labs(x="Prime Conditions",y="Latency (ms)",title=paste("Comparison Estimated Mean Latency for the Objects Block")) +
-    guides(fill = guide_legend(title="Target\nValence")) +
-    scale_fill_discrete(labels=c("Positive","Negative")) +
-    geom_errorbar(position = position_dodge2(padding=.8),colour = "black",size=.5) +
-    geom_label(
-      data = contrObj %>%
-        filter(primeA == primeB),
-      aes(
-        x = primeA,
-        y = 10,
-        label = p.value %>% signif(3)
-      ),
-      inherit.aes = FALSE
-    ) +
-    theme_bw(),
-  ncol = 1,
-  align = "hv"
-)
-
-```
-
-```{r Comparison Others & Objects, options}
-
-contrFull2 %>%
-  filter(
-    grepl("others.",primeA) & grepl("objects.",primeB) & targetA == targetB
-  ) %>% 
-  group_by(primeA,primeB) %>%
-  do(
-    plots = ggplot(data=.,aes(x=primeA,y=estimate,fill=targetA)) +
-      geom_col(position=position_dodge2()) +
-      ggtitle(paste(.$primeA,"-",.$primeB)) +
-      labs(x="",y="") +
-      scale_x_discrete(labels = NULL, breaks = NULL) +
-      scale_y_continuous(limits=c(-.08,.08)) +
-      geom_label(
-         aes(
-           y=0,
-          label=case_when(
-            p.value < .001 ~ '***',
-            p.value < .01 ~ '**',
-            p.value < .05 ~ '*',
-            TRUE ~ signif(p.value,3) %>% as.character
-          )
-      ),
-      position = position_dodge2(width=.9),
-      show.legend=FALSE
-      )
-  ) %$% 
-  plot_grid(
-    plot_grid(
-      plots[[1]] +
-        theme(legend.position="none"),
-      plots[[2]] +
-        theme(legend.position="none"),
-      plots[[3]] +
-        theme(legend.position="none"),
-      plots[[4]] +
-        theme(legend.position="none"),
-      align="hv",nrow=2
-    ),
-    get_legend(plots[[1]]),
-    nrow=1,
-    rel_widths = c(1,.2)
-  )
-  
-
-```
+<!-- contrFull2 %>% -->
+<!--   filter( -->
+<!--     grepl("others.",primeA) & grepl("objects.",primeB) & targetA == targetB -->
+<!--   ) %>%  -->
+<!--   group_by(primeA,primeB) %>% -->
+<!--   do( -->
+<!--     plots = ggplot(data=.,aes(x=primeA,y=estimate,fill=targetA)) + -->
+<!--       geom_col(position=position_dodge2()) + -->
+<!--       ggtitle(paste(.$primeA,"-",.$primeB)) + -->
+<!--       labs(x="",y="") + -->
+<!--       scale_x_discrete(labels = NULL, breaks = NULL) + -->
+<!--       scale_y_continuous(limits=c(-.08,.08)) + -->
+<!--       geom_label( -->
+<!--          aes( -->
+<!--            y=0, -->
+<!--           label=case_when( -->
+<!--             p.value < .001 ~ '***', -->
+<!--             p.value < .01 ~ '**', -->
+<!--             p.value < .05 ~ '*', -->
+<!--             TRUE ~ signif(p.value,3) %>% as.character -->
+<!--           ) -->
+<!--       ), -->
+<!--       position = position_dodge2(width=.9), -->
+<!--       show.legend=FALSE -->
+<!--       ) -->
+<!--   ) %$%  -->
+<!--   plot_grid( -->
+<!--     plot_grid( -->
+<!--       plots[[1]] + -->
+<!--         theme(legend.position="none"), -->
+<!--       plots[[2]] + -->
+<!--         theme(legend.position="none"), -->
+<!--       plots[[3]] + -->
+<!--         theme(legend.position="none"), -->
+<!--       plots[[4]] + -->
+<!--         theme(legend.position="none"), -->
+<!--       align="hv",nrow=2 -->
+<!--     ), -->
+<!--     get_legend(plots[[1]]), -->
+<!--     nrow=1, -->
+<!--     rel_widths = c(1,.2) -->
+<!--   ) -->
 
 
-```{r Graphs, options}
-
-# contrFull1 %>%
-#   filter(
-#     targetA == targetB &
-#       blockA == blockB
-#   ) %>%
-#   filter(
-#     grepl("(others|objects).",primeA) |
-#       grepl("(others|objects).",primeB)
-#   ) %>%
-#   filter(
-#     (blockA == "Objects" & not(grepl("others.",primeA))) |
-#       (blockB == "Objects" & not(grepl("others.",primeB)))
-#   ) %>%
-#   group_by(blockA,primeA,primeB) %>%
-#   do(
-#     plots = ggplot(data=.,aes(x=primeA,y=estimate,fill=targetA)) +
-#       geom_col(position=position_dodge2()) +
-#       ggtitle(paste(.$primeA,"-",.$primeB)) +
-#       labs(x="",y="") +
-#       scale_x_discrete(labels = NULL, breaks = NULL) +
-#       scale_y_continuous() +
-#       geom_label(
-#          aes(
-#           label=case_when(
-#             p.value < .001 ~ '***',
-#             p.value < .01 ~ '**',
-#             p.value < .05 ~ '*',
-#             TRUE ~ NA_character_
-#           )
-#       ),
-#       position = position_dodge2(width=.9)
-#       ) +
-#       theme_bw(legend.position="none")
-#   ) %$%
-#   plot_grid(
-#     plotlist=plots,align="hv"
-#   )
+<!-- ``` -->
 
 
-```
+<!-- ```{r Graphs, options} -->
+
+<!-- # contrFull1 %>% -->
+<!-- #   filter( -->
+<!-- #     targetA == targetB & -->
+<!-- #       blockA == blockB -->
+<!-- #   ) %>% -->
+<!-- #   filter( -->
+<!-- #     grepl("(others|objects).",primeA) | -->
+<!-- #       grepl("(others|objects).",primeB) -->
+<!-- #   ) %>% -->
+<!-- #   filter( -->
+<!-- #     (blockA == "Objects" & not(grepl("others.",primeA))) | -->
+<!-- #       (blockB == "Objects" & not(grepl("others.",primeB))) -->
+<!-- #   ) %>% -->
+<!-- #   group_by(blockA,primeA,primeB) %>% -->
+<!-- #   do( -->
+<!-- #     plots = ggplot(data=.,aes(x=primeA,y=estimate,fill=targetA)) + -->
+<!-- #       geom_col(position=position_dodge2()) + -->
+<!-- #       ggtitle(paste(.$primeA,"-",.$primeB)) + -->
+<!-- #       labs(x="",y="") + -->
+<!-- #       scale_x_discrete(labels = NULL, breaks = NULL) + -->
+<!-- #       scale_y_continuous() + -->
+<!-- #       geom_label( -->
+<!-- #          aes( -->
+<!-- #           label=case_when( -->
+<!-- #             p.value < .001 ~ '***', -->
+<!-- #             p.value < .01 ~ '**', -->
+<!-- #             p.value < .05 ~ '*', -->
+<!-- #             TRUE ~ NA_character_ -->
+<!-- #           ) -->
+<!-- #       ), -->
+<!-- #       position = position_dodge2(width=.9) -->
+<!-- #       ) + -->
+<!-- #       theme_bw(legend.position="none") -->
+<!-- #   ) %$% -->
+<!-- #   plot_grid( -->
+<!-- #     plotlist=plots,align="hv" -->
+<!-- #   ) -->
+
+
+<!-- ``` -->
