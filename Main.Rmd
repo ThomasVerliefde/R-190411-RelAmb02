@@ -219,14 +219,38 @@ dfTrials <- RAW %>%
     latencyInclusion = (RT >= 300 & RT <= 3000),
     trialInclusion = latencyInclusion & Correct,
     accInclusion = (1 - mean(trialInclusion)) < 0.83,
-    nameExclusion = Subject %in% c(86,105,117,118,125,129,133,135,141,142,145,156),
-    # Subject exclusions 86,105,117,118,125,129,133,135,141,142,145,156 are due to not providing decent object or other names.
+    nameExclusion = Subject %in% c(86,117,125,129,135,141,142,145,156),
+    # Subject exclusions 86,105,117,125,129,135,141,142,145,156 are due to not providing decent object or other names.
     # Note that there is quite a gray zone of acceptance, which is discussable.
     subjExclusion = not(accInclusion) | nameExclusion,
     Inclusion = trialInclusion & not(subjExclusion) & Segment == "experiment"
   ) %>%
   ungroup %>%
   arrange(Subject,Block,desc(Segment),Trial)
+
+```
+
+For each SPP, facilitation-inhibition of positive targets was computed by subtracting
+ the average RT for valenced prime / positive trials from the average RT for letter string / positive trials (Fazio et al., 1986).
+Similarly, facilitation-inhibition of negative targets was computed by subtracting
+ the average RT for valenced prime / negative trials from the average RT for the letter string / negative trials.
+
+```{r Delta - over Subject & targetWord, options}
+
+dfDelta <- dfTrials %>%
+  filter(Inclusion) %>%
+  group_by(Subject,Key,firstBlock,firstValence,Block,targetWord,targetCondition,primeCondition) %>%
+  summarize(
+    avgRT = mean(RT)
+  ) %>%
+  spread(primeCondition,avgRT) %>%
+  mutate_at(
+    vars(nounNeg,nounPos,objectsNeg,objectsPos,othersNeg,othersPos,letterStr),
+    funs(subtract(letterStr,.))
+  ) %>%
+  gather(primeCondition,deltaRT,nounNeg,nounPos,objectsNeg,objectsPos,othersNeg,othersPos,letterStr) %>%
+  na.omit %>%
+  ungroup
 
 ```
 
@@ -331,19 +355,19 @@ dfDemo <- RAW %>%
 ## Output
 ###########
 
-```{r Dataframe Output, exclude=TRUE}
+```{r Dataframe Output, exclude=TRUE, eval=FALSE}
 
-# dfTrials %>%
-#   write.csv("trialsData190611.csv")
-# 
-# dfTime %>%
-#   write.csv("timeData190611.csv")
-# 
-# dfDirect %>%
-#   write.csv("directData190611.csv")
-# 
-# dfDemo %>%
-#   write.csv("demoData190611.csv")
+dfTrials %>%
+  write.csv("trialsData190625.csv")
+
+dfTime %>%
+  write.csv("timeData190625.csv")
+
+dfDirect %>%
+  write.csv("directData190625.csv")
+
+dfDemo %>%
+  write.csv("demoData190625.csv")
 
 ```
 
@@ -1078,6 +1102,231 @@ specificContrastsObjectsNouns
 ```
 
 Again, no differences between the incongruent trials between sources, and strong differences between incongruent objects and congruent nouns.
+
+
+
+###################
+### Full Model
+###################
+
+
+```{r Others Block, options}
+
+afex::set_effects_contrasts()
+
+fullOthers <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(Block == "Others") %>%
+  mixed(
+    logRT ~ primeCondition * targetCondition + (1|Subject) + (1|targetWord),
+    data=.,
+    method = "S",
+  )
+
+fullOthersEmmeans <- fullOthers %>%
+  emmeans(~primeCondition*targetCondition)
+
+```
+
+
+```{r Objects Block, options}
+
+afex::set_effects_contrasts()
+
+fullObjects <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(Block == "Objects") %>%
+  mixed(
+    logRT ~ primeCondition * targetCondition + (1|Subject) + (1|targetWord),
+    data=.,
+    method = "S",
+  )
+
+fullObjectsEmmeans <- fullObjects %>%
+  emmeans(~primeCondition*targetCondition)
+
+```
+
+```{r Graph Full Latencies, options}
+
+fullOthersGraph <- fullOthersEmmeans %>%
+  as_tibble %>%
+  ggplot(aes(x=primeCondition %>% factor(levels = c("othersPos","othersNeg","nounPos","nounNeg","letterStr")),y=exp(emmean),fill=targetCondition)) +
+  geom_col(position=position_dodge2()) +
+  labs(x = "Prime Conditions", y = "RT (ms)", fill = "Target\nValence")
+
+fullObjectsGraph <- fullObjectsEmmeans %>%
+  as_tibble %>%
+  ggplot(aes(x=primeCondition %>% factor(levels = c("objectsPos","objectsNeg","nounPos","nounNeg","letterStr")),y=exp(emmean),fill=targetCondition)) +
+  geom_col(position=position_dodge2()) +
+  labs(x = "Prime Conditions", y = "RT (ms)", fill = "Target\nValence")
+
+plot_grid(
+  fullOthersGraph,
+  fullObjectsGraph,
+  nrow=2
+)
+
+```
+
+###################
+## Delta Analyses
+###################
+
+For object primes: significant prime valence x target valence interaction: F(1,16) = 9.02, p < .008, eta² = .36
+
+Liked significant other primes facilitated the processing of negative targets: t(37) = 2.24, p < .03
+disliked significant other primes facilitated the processing of positive targets: t(37) = 2.08, p < .05
+
+The overall facilitation effects (averaged across all combinations of prime and target valence) for significant other primes was significantly greater than for object primes:
+ F(1,37) = 9.44, p < .005, eta² = .20.
+ 
+Analyses of RTs on trials involving letter string primes revealed no main effect or interactions involving prime type.
+
+The bivalent-priming effects triggered by significant other primes coexisted with the traditional prime valence x target valence interaction: F(1,21) = 10.32, p < .005, eta² = .33
+
+```{r analyses Delta, options}
+
+afex::set_effects_contrasts()
+
+fitOthersDelta <- dfDelta %>%
+  filter(Block == "Others") %>%
+  mutate(
+    primeCondition = primeCondition %>% factor(levels = c("othersPos","othersNeg","nounPos","nounNeg","letterStr"))
+  ) %>%
+  mixed(
+    deltaRT ~ primeCondition * targetCondition +  (1|Key) + (1|firstBlock) + (1|firstValence) + (1|Subject) + (1|targetWord),
+    data=.,
+    method="S",
+    check_contrasts = FALSE,
+    contrasts = list(
+      "primeCondition" = contr.SAS(5),
+      "targetCondition" = contr.sum(2)
+    )
+  )
+
+fitObjectsDelta <- dfDelta %>%
+  filter(Block == "Objects") %>%
+  mutate(
+    primeCondition = primeCondition %>% factor(levels = c("objectsPos","objectsNeg","nounPos","nounNeg","letterStr"))
+  ) %>%
+  mixed(
+    deltaRT ~ primeCondition * targetCondition +  (1|Key) + (1|firstBlock) + (1|firstValence) + (1|Subject) + (1|targetWord),
+    data=.,
+    method="S",
+    check_contrasts = FALSE,
+    contrast = list(
+      "primeCondition" = contr.SAS(5),
+      "targetCondition" = contr.sum(2)
+    )
+  )
+
+```
+
+```{r emmeans & contrast Delta, options}
+
+emmOthersDelta <- fitOthersDelta %>%
+  emmeans(~primeCondition * targetCondition)
+
+contrOthersDelta <- emmOthersDelta %>%
+  contrast(method="trt.vs.ctrlk",by = "targetCondition") %>%
+  as_tibble %>%
+  mutate(
+    primeCondition = contrast %>% gsub("^([a-zA-Z]+).+$","\\1",.) %>% factor(levels = c("othersPos","othersNeg","nounPos","nounNeg")),
+    targetCondition = rep(c("Positive","Negative"),each=4) %>% factor(levels = c("Positive","Negative")),
+    p = case_when(
+      p.value < .001 ~ "***",
+      p.value < .01 ~ "**",
+      p.value < .05 ~ "*",
+      TRUE ~ p.value %>% signif(3) %>% as.character %>% gsub("^0\\.",".",.)
+    )
+  )
+
+emmObjectsDelta <- fitObjectsDelta %>%
+  emmeans(~primeCondition * targetCondition)
+
+contrObjectsDelta <- emmObjectsDelta %>%
+  contrast(method="trt.vs.ctrlk",by = "targetCondition") %>%
+  as_tibble %>%
+  mutate(
+    primeCondition = contrast %>% gsub("^([a-zA-Z]+).+$","\\1",.) %>% factor(levels = c("objectsPos","objectsNeg","nounPos","nounNeg")),
+    targetCondition = rep(c("Positive","Negative"),each=4) %>% factor(levels = c("Positive","Negative")),
+    p = case_when(
+      p.value < .001 ~ "***",
+      p.value < .01 ~ "**",
+      p.value < .05 ~ "*",
+      TRUE ~ p.value %>% signif(3) %>% as.character %>% gsub("^0\\.",".",.)
+    )
+  )
+
+
+```
+
+```{r graphs Delta, options}
+
+
+contrOthersDelta %>%
+  ggplot(
+    aes(x = primeCondition, y = estimate, fill = targetCondition, label = p)
+  ) +
+  geom_col(position=position_dodge2()) +
+  labs(x = "Prime Conditions", y = "Latencies", fill = "Target\nValence") +
+  geom_label(aes(y=0),position = position_dodge2(width = .9), fill = "white") +
+  scale_y_continuous(limits = c(-70,25)) +
+  theme(panel.grid.major.y = element_line())
+
+
+contrObjectsDelta %>%
+  ggplot(
+    aes(x = primeCondition, y = estimate, fill = targetCondition, label = p)
+  ) +
+  geom_col(position=position_dodge2()) +
+  labs(x = "Prime Conditions", y = "Latencies", fill = "Target\nValence") +
+  geom_label(aes(y=0),position = position_dodge2(width = .9), fill = "white") +
+  scale_y_continuous(limits = c(-70,25)) +
+  theme(panel.grid.major.y = element_line())
+
+
+
+
+# emmOthersDelta %>%
+#   as_tibble %>%
+#   filter(primeCondition != "letterStr") %>%
+#   ggplot(aes(x = primeCondition %>% factor(levels = c("othersPos","othersNeg","nounPos","nounNeg")), y = emmean, ymin = asymp.LCL, ymax = asymp.UCL, fill = targetCondition)) +
+#   geom_col(position=position_dodge2()) +
+#   # geom_errorbar(position = position_dodge2()) +
+#   geom_hline(yintercept=fitOthersDelta %>% summary %$% coefficients %>% extract2(1,1)) +
+#   labs(x = "Prime Conditions", y = "Reaction Times", fill = "Target\nValence") +
+#   # scale_y_continuous(limits = c(-70,25)) +
+#   geom_label(
+#     data = contrOthersDelta %>% filter(primeCondition != "letterStr"),
+#     aes(x = primeCondition %>% factor(levels = c("othersPos","othersNeg","nounPos","nounNeg")), y = 0, label = p, fill = targetCondition %>% factor(levels = c("Pos","Neg"))),
+#     position=position_dodge2(width = .9),
+#     inherit.aes = FALSE
+#   )
+#   
+# 
+# emmObjectsDelta %>%
+#   as_tibble %>%
+#   filter(primeCondition != "letterStr") %>%
+#   ggplot(aes(x = primeCondition %>% factor(levels = c("objectsPos","objectsNeg","nounPos","nounNeg")), y = emmean, ymin = asymp.LCL, ymax = asymp.UCL, fill = targetCondition)) +
+#   geom_col(position=position_dodge2()) +
+#   geom_errorbar(position = position_dodge2()) +
+#   geom_hline(yintercept=fitObjectsDelta %>% summary %$% coefficients %>% extract2(1,1)) +
+#   labs(x = "Prime Conditions", y = "Reaction Times", fill = "Target\nValence") +
+#   # scale_y_continuous(limits = c(-70,25)) +
+#   geom_label(
+#     data = contrObjectsDelta %>% filter(primeCondition != "letterStr"),
+#     aes(x = primeCondition %>% factor(levels = c("objectsPos","objectsNeg","nounPos","nounNeg")), y = 0, label = p, fill = targetCondition %>% factor(levels = c("Pos","Neg"))),
+#     position=position_dodge2(width = .9),
+#     inherit.aes = FALSE
+#   )
+  
+
+
+
+
+```
 
 
 
