@@ -1,9 +1,9 @@
 ---
 Author: Thomas Verliefde
-Date: 2019/06/25
+Date: 2019/06/26
 Output: html_document
 Title: Main
-Version: '1.0'
+Version: '1.1'
 editor_options:
   chunk_output_type: console
 ---
@@ -40,7 +40,7 @@ lapply(
 The required datafile (Data_RelAmb02.zip) should be in the working directory.
 Note that this datafile is not public on GitHub, but will be on the OSF page of this project.
 
-```{r RAW import, options}
+```{r RAW import, include=FALSE}
 
 temp <- tempdir()
 RAW <- "dataRelAmb02.zip" %>% {
@@ -98,7 +98,7 @@ RAW %>%
 
 ```
 
-```{r RAW - Wrangling, options}
+```{r RAW - Wrangling, include=FALSE}
 
 RAW %<>%
   mutate_at(
@@ -145,8 +145,6 @@ RAW %>%
 
 ```
 
-
-
 ###############
 ## Wrangling
 ###############
@@ -188,18 +186,19 @@ dfTrials <- RAW %>%
         "2" = paste0(tolower(Block),"Pos"),
         "3" = paste0(tolower(Block),"Neg"),
         "4" = "letterStr"
-      ), # The following two variables could be created with an tidyr::extract(primeCondition,c("primeValence","primeSource"),"^(.+)([A-Z]{1}.+)$")
+      ) %>% factor(levels = c("othersPos","othersNeg","objectsPos","objectsNeg","nounPos","nounNeg","letterStr")),
+    # The following two variables could be created with an tidyr::extract(primeCondition,c("primeValence","primeSource"),"^(.+)([A-Z]{1}.+)$")
     primeValence = primeCondition %>%
-      gsub("^(.+)([A-Z]{1}.+)$","\\2",.),
+      gsub("^(.+)([A-Z]{1}.+)$","\\2",.) %>% factor(levels = c("Pos","Neg","Str")),
     primeSource = primeCondition %>%
-      gsub("^(.+)([A-Z]{1}.+)$","\\1",.),
+      gsub("^(.+)([A-Z]{1}.+)$","\\1",.) %>% factor(levels = c("others","objects","noun","letter")),
     targetCondition = targetCondition %>%
       recode_factor(
         "0" = "Pos",
         "1" = "Neg"
       ),
     Congruency = case_when(
-      primeValence == targetCondition ~ "Congruent",
+      primeValence %>% as.character == targetCondition %>% as.character ~ "Congruent",
       primeValence == "Str" ~ "Base",
       TRUE ~ "Incongruent"
     ),
@@ -211,7 +210,11 @@ dfTrials <- RAW %>%
       Response == "L" & targetCondition == "Neg" & Key == "Apos" ~ TRUE,
       Response == "L" & targetCondition == "Pos" & Key == "Aneg" ~ TRUE,
       TRUE ~ FALSE
-    )
+    ),
+    orderBlock = case_when(
+      Block == firstBlock ~ "1",
+      TRUE ~ "2"
+    ) %>% factor(levels = c("1","2"))
   ) %>%
   group_by(Subject,Segment) %>%
   mutate(
@@ -355,31 +358,34 @@ dfDemo <- RAW %>%
 ## Output
 ###########
 
-```{r Dataframe Output, exclude=TRUE, eval=FALSE}
+```{r Dataframe Output, exclude=TRUE, eval=FALSE, include=FALSE}
 
-dfTrials %>%
-  write.csv("trialsData190625.csv")
-
-dfTime %>%
-  write.csv("timeData190625.csv")
-
-dfDirect %>%
-  write.csv("directData190625.csv")
-
-dfDemo %>%
-  write.csv("demoData190625.csv")
+# dfTrials %>%
+#   write.csv("trialsData190625.csv")
+# 
+# dfTime %>%
+#   write.csv("timeData190625.csv")
+# 
+# dfDirect %>%
+#   write.csv("directData190625.csv")
+# 
+# dfDemo %>%
+#   write.csv("demoData190625.csv")
 
 ```
 
 
 ##########
-# Demo+
+# Demog
 ##########
 
 ```{r Balance, options}
 
 dfDemo %>%
   count(Condition,Key,firstBlock,firstValence)
+
+dfDemo %>%
+  count(subjExclusion)
 
 dfDemo %>%
   filter(subjExclusion %>% not) %>%
@@ -429,6 +435,70 @@ dfTrials %>%
   distinct(Subject,Accuracy) %>%
   arrange(Accuracy)
 
+dfTrials %>%
+  filter(Inclusion) %>%
+  distinct(Subject,Accuracy) %>%
+  summarize_at(
+    "Accuracy",
+    funs(mean,sd,min,max,median),
+    na.rm=TRUE
+  )
+
+dfTrials %>%
+  filter(Inclusion) %>%
+  distinct(Subject,Accuracy) %>%
+  ggplot(aes(y = Accuracy)) +
+  geom_boxplot()
+
+```
+
+
+```{r Excluded Trials, options}
+
+dfTrials %>%
+  distinct(Subject,nameExclusion) %>%
+  count(nameExclusion) %>%
+  filter(nameExclusion) %$%
+  paste0("We excluded ",n," participants because of not following instructions.")
+
+dfTrials %>%
+  distinct(Subject,accInclusion) %>%
+  count(accInclusion) %>%
+  filter(accInclusion) %$%
+  paste0("We excluded ",n-85," participants because of major latency issues.")
+
+dfTrials %$%
+  mean(latencyInclusion) %>%
+  subtract(1,.) %>%
+  round(5) %>%
+  paste0(.,"% of total trials were below 300ms or above 3000ms.")
+
+dfTrials %>%
+  filter(subjExclusion) %$%
+  mean(latencyInclusion) %>%
+  subtract(1,.) %>%
+  round(5) %>%
+  paste0("For the included participants, ",.,"% of trials were below 300ms or above 3000ms and as such excluded.")
+
+dfTrials %$%
+  mean(Correct) %>%
+  subtract(1,.) %>%
+  round(5) %>%
+  paste0(.,"% of total trials were incorrect.")
+
+dfTrials %>%
+  filter(subjExclusion) %$%
+  mean(Correct) %>%
+  subtract(1,.) %>%
+  round(5) %>%
+  paste0("For the included participants, ",.,"% of trials were incorrect and as such excluded.")
+
+dfTrials %$%
+  mean(Inclusion) %>%
+  subtract(1,.) %>%
+  round(5) %>%
+  paste0("Overall, ",.,"% of trials had to be excluded.")
+
 ```
 
 ############
@@ -443,47 +513,82 @@ dfTrials %>%
 ### Congruency
 ################
 
-```{r Simple Congruency Models, options}
+```{r Model, options}
+
+congruencyModel <- function(data,primes,block = c("Others","Objects")){
+  fit <- data %>%
+    filter(Inclusion) %>%
+    filter(primeSource == primes) %>%
+    filter(firstBlock %in% block) %>%
+  mixed(
+    logRT ~ primeCondition * targetCondition + (1|Subject) + (1|targetWord),
+    data = .,
+    method = "S",
+    check_contrasts = TRUE,
+      contrasts = list(primeCondition = contr.sum(2), targetCondition = contr.sum(2))
+    )
+  return(fit)
+}
+
+```
+
+
+```{r Congruency Models Others, options}
 
 afex::set_effects_contrasts()
 
 congruencyOthers <- dfTrials %>%
-  filter(Inclusion) %>%
-  filter(primeSource == "others") %>%
-  mixed(
-    logRT ~ primeCondition * targetCondition + (1|Subject) + (1|targetWord),
-    data = .,
-    method = "S",
-    check_contrasts = TRUE,
-    contrasts = list(primeCondition = contr.sum(2), targetCondition = contr.sum(2))
-  )
+  congruencyModel("others")
 congruencyOthers
 
-congruencyObjects <- dfTrials %>%
-  filter(Inclusion) %>%
-  filter(primeSource == "objects") %>%
-  mixed(
-    logRT ~ primeCondition * targetCondition + (1|Subject) + (1|targetWord),
-    data = .,
-    method = "S",
-    check_contrasts = TRUE,
-    contrasts = list(primeCondition = contr.sum(2), targetCondition = contr.sum(2))
-  )
-congruencyObjects
+congruencyOthersBetween <- dfTrials %>%
+  congruencyModel("others","Others")
+congruencyOthersBetween
 
-congruencyNouns <- dfTrials %>%
-  filter(Inclusion) %>%
-  filter(primeSource == "noun") %>%
-  mixed(
-    logRT ~ primeCondition * targetCondition * Block + (1|Subject) + (1|targetWord),
-    data = .,
-    method = "S",
-    check_contrasts = TRUE,
-    contrasts = list(primeCondition = contr.sum(2), targetCondition = contr.sum(2))
-  )
-congruencyNouns
+congruencyOthersBetween2nd <- dfTrials %>%
+  congruencyModel("others","Objects")
+congruencyOthersBetween2nd
 
 ```
+
+```{r Congruency Objects, options}
+
+afex::set_effects_contrasts()
+
+congruencyObjects <- dfTrials %>%
+  congruencyModel("objects")
+congruencyObjects
+
+congruencyObjectsBetween <- dfTrials %>%
+  congruencyModel("objects","Objects")
+congruencyObjectsBetween
+
+congruencyObjectsBetween2nd <- dfTrials %>%
+  congruencyModel("objects","Others")
+congruencyObjectsBetween2nd
+
+```
+
+```{r Congruency Nouns, options}
+
+afex::set_effects_contrasts()
+
+congruencyNouns <- dfTrials %>%
+  congruencyModel("noun")
+congruencyNouns
+
+congruencyNounsBetweenObjects <- dfTrials %>%
+  congruencyModel("noun","Others")
+congruencyNounsBetweenObjects
+
+congruencyNounsBetweenOthers <- dfTrials %>%
+  congruencyModel("noun","Objects")
+congruencyNounsBetweenOthers
+
+```
+
+When testing for the congruency-effect between participants, there is no congruency effect observed for objects in the first block, but there is for the second block.
+
 
 ########################
 #### Control Variables
@@ -681,12 +786,39 @@ comparisonOthersObjectsBlock %>%
 
 The interaction between primeSource and firstBlock seems to be along the lines where the first block resulted in higher latencies in comparison to the second block.
 
+```{r Order of Block, options}
 
-I am not sure whether it is sufficient to include firstBlock as a random intercept?
-Including full random slopes for firstBlock does not result in convergence.
-A simpler model, only including slopes for primeSource (since the interaction primeSource:firstBlock is highly significant) does converge.
+comparisonOthersObjectsOrderBlock <- dfTrials %>%
+ filter(Inclusion) %>%
+  filter(primeSource %in% c("others","objects")) %>%
+  mixed(
+    logRT ~ primeValence * targetCondition * primeSource * orderBlock + (1|targetWord) + (1|Subject),
+    data= .,
+    method="S"
+  )
+
+```
+
+```{r contrasts order of block, options}
+
+comparisonOthersObjectsOrderBlock %>% {
+  emmeans(.,~primeValence) %>% print
+  emmeans(.,~targetCondition) %>% print
+  emmeans(.,~primeSource) %>% print
+  emmeans(.,~orderBlock) %>% print
+  emmeans(.,~primeValence:targetCondition) %>% print
+  emmeans(.,~primeValence:targetCondition:primeSource) %>% print
+  emmeans(.,~primeValence:targetCondition:orderBlock) %>% print
+}
+
+```
+
+
+
+I should do some model comparison to find a good fitting model?
 
 ```{r Objects between Block Random, options}
+
 
 afex::set_effects_contrasts()
 
@@ -694,31 +826,31 @@ comparisonOthersObjectsBlockRandom <- dfTrials %>%
   filter(Inclusion) %>%
   filter(primeSource %in% c("others","objects")) %>%
   mixed(
-    logRT ~ primeValence * targetCondition * primeSource + (primeSource|firstBlock) + (1|targetWord) + (1|Subject),
+    logRT ~ primeValence * targetCondition * primeSource * orderBlock + (1|targetWord) + (1|Subject),
     data = .,
     method = "S"
   )
-comparisonOthersObjectsBlockRandom
+comparisonOthersObjectsBlockRandom %>% summary
 
 ```
 
 Note that the addition of firstBlock as a random intercept with slope on primeSource fully removes the main effect primeSource seemed to have.
 As an additional test, we opted to perform the above analyses between subject, instead of between block.
 
-```{r Objects between Subject, options}
+```{r Objects between Subject - 1st Block, options}
 
 afex::set_effects_contrasts()
 
-comparisonOthersObjectsSubject <- dfTrials %>%
+comparisonOthersObjectsSubject1 <- dfTrials %>%
   filter(Inclusion) %>%
   filter(primeSource %in% c("others","objects")) %>%
-  filter(Block == firstBlock) %>%
+  filter(orderBlock == "1") %>%
   mixed(
     logRT ~ primeValence * targetCondition * primeSource + (1|targetWord) + (1|Subject),
     data = .,
     method = "S"
   )
-comparisonOthersObjectsSubject
+comparisonOthersObjectsSubject1
 
 ```
 
@@ -731,14 +863,32 @@ comparisonOthersObjectsSubject
 6              targetCondition:primeSource 1, 1995.36   0.63    .43
 7 primeValence:targetCondition:primeSource 1, 2001.10   5.07    .02   *
 
-These results follow the results of the model including random slopes for firstBlock.
+```{r Objects between Subject - 2nd Block, options}
+
+afex::set_effects_contrasts()
+
+comparisonOthersObjectsSubject2 <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(primeSource %in% c("others","objects")) %>%
+  filter(orderBlock == "2") %>%
+  mixed(
+    logRT ~ primeValence * targetCondition * primeSource + (1|targetWord) + (1|Subject),
+    data = .,
+    method = "S"
+  )
+comparisonOthersObjectsSubject2
+
+```
+
+
+
 
 ```{r Contrasts others objects, options}
 
 emmeansOthersObjectsBlock <- comparisonOthersObjectsBlockRandom %>%
   emmeans(~primeValence*targetCondition*primeSource)
 
-emmeansOthersObjectsSubject <- comparisonOthersObjectsSubject %>%
+emmeansOthersObjectsSubject <- comparisonOthersObjectsSubject1 %>%
   emmeans(~primeValence*targetCondition*primeSource)
 
 ```
@@ -806,7 +956,7 @@ There seems to be some differences between the models, at the very least regardi
 
 ```{r Comparing Prime Valence, options}
 
-contrastsOthersObjects <- emmeansOthersObjectsBlock %>%
+contrastsOthersObjects <- emmeansOthersObjectsSubject %>%
   contrast(method="revpairwise") %>%
   as_tibble %>%
   separate(
@@ -816,7 +966,26 @@ contrastsOthersObjects <- emmeansOthersObjectsBlock %>%
 
 ```
 
-Additional Tests to do
+```{r Specific Contrast Test Others Objects, options}
+
+contrastsOthersObjects<- emmeansOthersObjectsSubject %>%
+  contrast(method="revpairwise") %>%
+  as_tibble %>%
+  separate(
+    contrast,
+    c("primeValenceA","targetValenceA","primeSourceA","primeValenceB","targetValenceB","primeSourceB")
+  )
+
+specificContrastsOthersObjects <- contrastsOthersObjects %>%
+  filter(
+    targetValenceA == targetValenceB,
+    primeSourceA != primeSourceB,
+    primeValenceA != targetValenceA
+  ) %>%
+  select(-targetValenceB)
+specificContrastsOthersObjects
+
+```
 
 #####################
 ### Others - Letter
@@ -828,19 +997,19 @@ comparisonOthersLetter <- dfTrials %>%
   filter(Inclusion) %>%
   filter(primeSource %in% c("others","letter")) %>%
   filter(Block == "Others") %>%
-  mutate(
-    primeValence = primeValence %>%
-      factor(levels = c("Str","Pos","Neg")),
-    targetCondition = targetCondition %>%
-      factor(levels = c("Pos","Neg"))
-  ) %>%
+  # mutate(
+  #   primeValence = primeValence %>%
+  #     factor(levels = c("Str","Pos","Neg")),
+  #   targetCondition = targetCondition %>%
+  #     factor(levels = c("Pos","Neg"))
+  # ) %>%
   mixed(
     logRT ~ primeValence * targetCondition + (1|targetWord) + (1|Subject),
     data = .,
     method = "S",
-    check_contrasts = FALSE,
+    check_contrasts = TRUE,
     contrasts = list(
-      "primeValence" = contr.treatment(3),
+      "primeValence" = contr.SAS(3),
       "targetCondition" = contr.sum(2)
     )
   )
@@ -855,7 +1024,7 @@ emmeansOthersLetter <- comparisonOthersLetter %>%
 emmeansOthersLetter
 
 contrastsOthersLetter <- emmeansOthersLetter %>%
-  contrast(method="revpairwise") %>%
+  contrast(method="pairwise") %>% #method="trt.vs.ctrlk",by="targetCondition"
   as_tibble %>%
   separate(
     contrast,
@@ -923,19 +1092,19 @@ comparisonObjectsLetter <- dfTrials %>%
   filter(Inclusion) %>%
   filter(primeSource %in% c("objects","letter")) %>%
   filter(Block == "Objects") %>%
-  mutate(
-    primeValence = primeValence %>%
-      factor(levels = c("Str","Pos","Neg")),
-    targetCondition = targetCondition %>%
-      factor(levels = c("Pos","Neg"))
-  ) %>%
+  # mutate(
+  #   primeValence = primeValence %>%
+  #     factor(levels = c("Str","Pos","Neg")),
+  #   targetCondition = targetCondition %>%
+  #     factor(levels = c("Pos","Neg"))
+  # ) %>%
   mixed(
     logRT ~ primeValence * targetCondition + (1|targetWord) + (1|Subject),
     data = .,
     method = "S",
     check_contrasts = FALSE,
     contrasts = list(
-      "primeValence" = contr.treatment(3),
+      "primeValence" = contr.SAS(3),
       "targetCondition" = contr.sum(2)
     )
   )
@@ -950,7 +1119,7 @@ emmeansObjectsLetter <- comparisonObjectsLetter %>%
 emmeansObjectsLetter
 
 contrastsObjectsLetter <- emmeansObjectsLetter %>%
-  contrast(method="revpairwise") %>%
+  contrast(method="pairwise") %>%
   as_tibble %>%
   separate(
     contrast,
@@ -1008,6 +1177,107 @@ graphObjectsLetter <- emmeansObjectsLetter %>%
 ```
 
 
+
+
+######################
+### Nouns - Letter
+######################
+
+```{r simple model nouns, options}
+
+comparisonNounsLetter <- dfTrials %>%
+  filter(Inclusion) %>%
+  filter(primeSource %in% c("noun","letter")) %>%
+  # filter(Block == "Objects") %>%
+  # mutate(
+  #   primeValence = primeValence %>%
+  #     factor(levels = c("Str","Pos","Neg")),
+  #   targetCondition = targetCondition %>%
+  #     factor(levels = c("Pos","Neg"))
+  # ) %>%
+  mixed(
+    logRT ~ primeValence * targetCondition + (1|targetWord) + (1|Subject),
+    data = .,
+    method = "S",
+    check_contrasts = FALSE,
+    contrasts = list(
+      "primeValence" = contr.SAS(3),
+      "targetCondition" = contr.sum(2)
+    )
+  )
+comparisonNounsLetter
+
+```
+
+```{r contrasts noun, options}
+
+emmeansNounsLetter <- comparisonNounsLetter %>%
+  emmeans(~primeValence*targetCondition)
+emmeansNounsLetter
+
+contrastsNounsLetter <- emmeansNounsLetter %>%
+  contrast(method="pairwise") %>%
+  as_tibble %>%
+  separate(
+    contrast,
+    c("primeValenceA","targetValenceA","primeValenceB","targetValenceB")
+  )
+contrastsNounsLetter
+
+```
+
+
+```{r graph noun, options}
+
+graphNounsLetter <- emmeansNounsLetter %>%
+  as_tibble %>%
+  mutate(
+    RT = emmean %>% exp
+  ) %>% {
+    left_join(
+      filter(.,primeValence != "Str"),
+      select(.,primeValence,RT,targetCondition) %>%
+        spread(primeValence,RT) %>%
+        gather(primeValence,RT,Pos,Neg) %>%
+        mutate(
+          deltaRT = subtract(RT,Str)
+        ) %>%
+        select(-RT,-Str),
+      by=c("primeValence","targetCondition")
+    )
+  } %>%
+  select(primeValence,targetCondition,RT,deltaRT,everything()) %>%
+  ggplot(aes(x=factor(primeValence,levels = c("Pos","Neg")),y=deltaRT,fill=factor(targetCondition,levels=c("Pos","Neg")))) +
+  geom_col(position=position_dodge2()) +
+  labs(x=NULL,y=expression(Delta * " Reaction Time (ms)"),title="Nouns - Strings") +
+  guides(fill=guide_legend(title="Target\nValence")) +
+  scale_y_continuous(breaks = seq(-20,100,20),limits = c(-30,60)) +
+  geom_label(
+    data = contrastsNounsLetter %>%
+      filter(
+        targetValenceA == targetValenceB,
+        primeValenceB == "Str"
+      ) %>%
+      mutate(
+        p = case_when(
+          p.value < .001 ~ '***',
+          p.value < .01 ~ '**',
+          p.value < .05 ~ '*',
+          TRUE ~ p.value %>% signif(3) %>% as.character %>% gsub("^0.",".",.)
+        )
+      ),
+    aes(x=factor(primeValenceA,levels = c("Pos","Neg")),y=0,label=p,group=factor(targetValenceA,levels=c("Pos","Neg"))),
+    position=position_dodge2(width=.9),
+    inherit.aes = FALSE
+  )
+
+```
+
+#####################################
+### Combined Plot Comparisons Letter
+#####################################
+
+
 ```{r Combined Plot Object - Other, options}
 
 plot_grid(
@@ -1019,22 +1289,35 @@ plot_grid(
     ),
   NULL,
   graphOthersLetter +
-    coord_trans(y="reverse") +
   scale_y_reverse(breaks = seq(60,-100,-20),limits = c(60,-30)) +
     theme(
+      legend.position="none",
       axis.title.y = element_blank(),
       axis.ticks.y = element_blank(),
       axis.text.y = element_blank(),
       axis.line.y=element_blank(),
       panel.grid.major.y = element_line()
     ),
-  rel_widths = c(1,-.075,1.1),
+  NULL,
+  graphNounsLetter +
+    scale_y_reverse(breaks = seq(60,-100,-20),limits = c(60,-30)) +
+    theme(
+      legend.position="none",
+      axis.title.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      axis.text.y = element_blank(),
+      axis.line.y=element_blank(),
+      panel.grid.major.y = element_line()
+    ),
+  graphObjectsLetter %>% get_legend,
+  rel_widths = c(1.2,-.1,1,-.1,1,.3),
   nrow=1
-) %>%
-  save_plot("ObjectsOthersLetters.svg",.,device="svg",base_aspect_ratio = 1.4, base_height = 6)
+) # %>% save_plot("ObjectsOthersLetters.svg",.,device="svg",base_aspect_ratio = 1.4, base_height = 6)
 
 
 ```
+
+
 
 
 ##################
@@ -1083,7 +1366,7 @@ emmeansObjectsNouns <- comparisonObjectsNouns %>%
   emmeans(~primeValence*targetCondition*primeSource)
 
 contrastsObjectsNouns <- emmeansObjectsNouns %>%
-  contrast(method="revpairwise") %>%
+  contrast(method="trt.vs.ctrlk") %>%
   as_tibble %>%
   separate(
     contrast,
@@ -1328,6 +1611,129 @@ contrObjectsDelta %>%
 
 ```
 
+
+####################
+# Direct Measures
+####################
+
+```{r Visualisation Objects & Others, options}
+
+dirPlot <- function(data,type){
+  ggplot(data=data %>% filter(Type == type),aes(x=Positive,y=Negative,shape=Valence %>% factor(levels = c("Pos","Neg"), labels = c("Positive","Negative")),colour=Felt)) +
+    geom_point(alpha=1,size=3) +
+    labs(x="Positivity",y="Negativity") +
+    guides(
+      shape = guide_legend(title=paste0(type,"\nValence"),override.aes = list(alpha=1,size=5)),
+      colour = guide_legend(title="Felt\nAmbivalence",override.aes = list(size=5))
+    ) +
+    scale_colour_gradient2(low = "black",mid = "orange",high="red",midpoint = 50) +
+    scale_shape_manual(values=c(1,4)) +
+    theme(plot.margin=margin(1.5,0.5,0.5,0.5,"cm"))
+}
+
+dfDirect %>%
+  filter(subjExclusion %>% not) %>%
+  dirPlot("Others")
+
+dfDirect %>%
+  filter(subjExclusion %>% not) %>%
+  dirPlot("Objects")
+
+
+```
+
+```{r Levene's Test on Direct Measures between Valence, options}
+
+multLevene <- function(data,type){
+  data %>%
+    filter(subjExclusion %>% not) %>%
+    filter(Type == type) %>%
+    mutate(Valence = Valence %>% factor(levels = c("Pos","Neg"))) %>%
+    distinct(Subject,Valence,Felt,Positive,Negative,Griffin,Id) %$% {
+      car::leveneTest(Felt ~ Valence) %>% print
+      car::leveneTest(Positive ~ Valence) %>% print
+      car::leveneTest(Negative ~ Valence) %>% print
+      car::leveneTest(Griffin ~ Valence) %>% print
+    }
+}
+
+dfDirect %>%
+  multLevene("Others")
+
+dfDirect %>%
+  multLevene("Objects")
+
+```
+
+All tests show significance, rejecting the assumption that Positive and Negative Others/Objects have equal variance.
+Based on the graphs, we can conclude that for both Others and Objects Positive items have lower variance.
+
+```{r T.tests on Direct Measures between Valence, options}
+
+multTtest <- function(data,type){
+  data %>%
+    filter(subjExclusion %>% not) %>%
+    filter(Type == type) %>%
+    mutate(Valence = Valence %>% factor(levels = c("Pos","Neg"))) %>%
+    distinct(Subject,Valence,Felt,Positive,Negative,Griffin,Id) %$% {
+      t.test(Felt ~ Valence) %>% print
+      t.test(Positive ~ Valence) %>% print
+      t.test(Negative ~ Valence) %>% print
+      t.test(Griffin ~ Valence) %>% print
+    }
+}
+
+dfDirect %>%
+  multTtest("Others")
+
+dfDirect %>%
+  multTtest("Objects")
+
+```
+
+```{r Refactorisation primeCondition based on Direct Measures, options}
+
+dfRefac <- dfDirect %>%
+  right_join(
+    dfTrials %>% filter(Segment == "experiment"),
+    by = c("Name" = "primeWord", "Subject", "Condition","Key","firstBlock","firstValence","subjExclusion","nameExclusion")
+  ) %>%
+  mutate(
+    primeDirect = case_when(
+      Griffin > 0 ~ paste0(primeSource,"Amb"),
+      Positive > Negative ~ paste0(primeSource,"Pos"),
+      Negative > Positive ~ paste0(primeSource,"Neg"),
+      TRUE ~ primeCondition %>% as.character
+    ) %>% factor(levels = c("letterStr","otherAmb","otherPos","otherNeg","objectAmb","objectPos","objectNeg","nounPos","nounNeg"))
+  )
+
+
+
+
+df_others %>%
+  distinct(Subject,otherNames,catGriff,otherDir,valDir) %>%
+  spread(otherDir,valDir)  %>%
+  right_join(
+    df_trials,
+    by = c("otherNames" = "Prime","Subject")
+  ) %>%
+  mutate(
+    primeDirect = case_when( 
+      catGriff == "Ambivalent" ~ "otherAmb",
+      Pos > Neg ~ "otherPos",
+      Neg > Pos ~ "otherNeg",
+      TRUE ~ primeType %>% as.character
+      # The most unclear thing here, is what we do with 'indifferent' participants
+      # Currently, they get categorised as "univalent": otherPos or otherNeg, depending on the difference between the two direct measures Neg and Pos
+      # In the case that these are equal, they get categorised as what they used to be before.
+    ) %>% factor(levels = c("letterStr","otherAmb","otherPos","otherNeg","nounPos","nounNeg")),
+    targetType = recode(targetType,"adjNeg" = "Neg", "adjPos" = "Pos") %>% factor(levels = c("Pos","Neg")),
+    Subject = Subject %>% as.factor,
+    Target = Target %>% as.factor,
+    logRT = logRT %>% as.numeric()
+  )
+
+```
 
 
 
